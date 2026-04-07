@@ -222,11 +222,7 @@ public sealed partial class GlobalObject : ObjectInstance
 
         // we should now have proper input part
 
-#if SUPPORTS_SPAN_PARSE
-        var substring = trimmedString.AsSpan(0, i);
-#else
         var substring = trimmedString.Substring(0, i);
-#endif
 
         const NumberStyles Styles = NumberStyles.AllowDecimalPoint | NumberStyles.AllowExponent | NumberStyles.AllowLeadingSign;
         if (double.TryParse(substring, Styles, CultureInfo.InvariantCulture, out var d))
@@ -351,7 +347,7 @@ public sealed partial class GlobalObject : ObjectInstance
                         buffer[0] = (byte) v;
                         break;
                     case <= 0x07FF:
-                        // 00000yyy yyzzzzzz ->	110yyyyy ; 10zzzzzz
+                        // 00000yyy yyzzzzzz ->    110yyyyy ; 10zzzzzz
                         length = 2;
                         buffer[0] = (byte) (0xC0 | (v >> 6));
                         buffer[1] = (byte) (0x80 | (v & 0x3F));

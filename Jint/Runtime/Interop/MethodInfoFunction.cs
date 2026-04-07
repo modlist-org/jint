@@ -228,6 +228,12 @@ internal sealed class MethodInfoFunction : Function
                 }
             }
 
+            bool requiresEngineShift = DelegateWrapper.IsRequireEngineShift(ref methodParameters);
+            if (requiresEngineShift)
+            {
+                DelegateWrapper.EngineShift(ref parameters, Engine);
+            }
+
             if (!argumentsMatch)
             {
                 continue;

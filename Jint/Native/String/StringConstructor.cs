@@ -61,12 +61,7 @@ internal sealed class StringConstructor : Constructor
             return JsString.Create((char) TypeConverter.ToUint16(arguments[0]));
         }
 
-#if SUPPORTS_SPAN_PARSE
-        var elements = length < 512 ? stackalloc char[length] : new char[length];
-#else
-        var elements = new char[length];
-#endif
-        for (var i = 0; i < elements.Length; i++)
+        var elements = new char[length]; for (var i = 0; i < elements.Length; i++)
         {
             var nextCu = TypeConverter.ToUint16(arguments[i]);
             elements[i] = (char) nextCu;

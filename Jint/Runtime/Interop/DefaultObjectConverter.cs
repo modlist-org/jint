@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using Jint.Native;
@@ -69,6 +70,12 @@ internal static class DefaultObjectConverter
             if (value is Delegate d)
             {
                 result = new DelegateWrapper(engine, d);
+                return result is not null;
+            }
+
+            if (value is MethodInfo m)
+            {
+                result = new MethodInfoWrapper(engine, m);
                 return result is not null;
             }
 

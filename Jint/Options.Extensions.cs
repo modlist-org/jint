@@ -178,6 +178,18 @@ public static class OptionsExtensions
         options.Interop.AllowWrite = allow;
         return options;
     }
+    public static Options AllowReflection(this Options options, bool allow = true)
+    {
+        options.Interop.AllowSystemReflection = allow;
+        options.Interop.AllowGetType = allow;
+        return options;
+    }
+
+    public static Options ClrSlowInvoke(this Options options, bool invoke = true)
+    {
+        options.ClrMethodWrapSlow = invoke;
+        return options;
+    }
 
     public static Options AllowOperatorOverloading(this Options options, bool allow = true)
     {

@@ -30,12 +30,8 @@ internal sealed class JsWeakMap : ObjectInstance
             Throw.TypeError(_engine.Realm, "WeakMap key must be an object, got " + key);
         }
 
-#if SUPPORTS_WEAK_TABLE_ADD_OR_UPDATE
-        _table.AddOrUpdate(key, value);
-#else
         _table.Remove(key);
         _table.Add(key, value);
-#endif
     }
 
     internal JsValue WeakMapGet(JsValue key)

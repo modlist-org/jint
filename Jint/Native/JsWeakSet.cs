@@ -30,11 +30,7 @@ internal sealed class JsWeakSet : ObjectInstance
             Throw.TypeError(_engine.Realm, "WeakSet value must be an object or symbol, got " + value);
         }
 
-#if SUPPORTS_WEAK_TABLE_ADD_OR_UPDATE
-        _table.AddOrUpdate(value, Undefined);
-#else
         _table.Remove(value);
         _table.Add(value, Undefined);
-#endif
     }
 }

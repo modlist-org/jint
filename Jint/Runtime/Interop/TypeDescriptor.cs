@@ -53,10 +53,6 @@ internal sealed class TypeDescriptor
 
         IsDisposable = type.GetInterface(nameof(IDisposable)) is not null;
 
-#if SUPPORTS_ASYNC_DISPOSE
-        IsAsyncDisposable = type.GetInterface(nameof(IAsyncDisposable)) is not null;
-#endif
-
         if (IsArrayLike)
         {
             LengthProperty = lengthProperty;

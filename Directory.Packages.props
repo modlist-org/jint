@@ -26,6 +26,7 @@
     <PackageVersion Include="SharpZipLib" Version="1.4.2" />
     <PackageVersion Include="SourceMaps" Version="0.3.0" />
     <PackageVersion Include="Spectre.Console.Cli" Version="0.45.0" />
+    <PackageVersion Include="System.Reflection.Emit" Version="4.7.0" />
     <PackageVersion Include="System.Text.Json" Version="10.0.1" />
     <PackageVersion Include="Test262Harness" Version="1.0.4" />
     <PackageVersion Include="xunit.v3.mtp-off" Version="3.2.2" />

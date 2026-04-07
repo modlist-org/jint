@@ -76,6 +76,9 @@ public class Options
     /// </summary>
     public bool Strict { get; set; }
 
+
+    public bool ClrMethodWrapSlow { get; set; } = true;
+
     /// <summary>
     /// The culture the engine runs on, defaults to current culture.
     /// </summary>

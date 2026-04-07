@@ -107,6 +107,7 @@ internal sealed class MethodDescriptor
     {
         var parameters = new object?[arguments.Length];
         var methodParameters = Parameters;
+        bool requiresEngineShift = DelegateWrapper.IsRequireEngineShift(ref methodParameters);
         var valueCoercionType = engine.Options.Interop.ValueCoercion;
 
         try
@@ -136,6 +137,11 @@ internal sealed class MethodDescriptor
                 }
 
                 parameters[i] = converted;
+            }
+
+            if (requiresEngineShift)
+            {
+                DelegateWrapper.EngineShift(ref parameters, engine);
             }
 
             var retVal = Method switch

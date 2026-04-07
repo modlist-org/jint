@@ -1,8 +1,10 @@
 using System.Globalization;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using Jint.Extensions;
 using Jint.Native;
 using Jint.Native.Function;
+using Jint.Pooling;
 
 #pragma warning disable IL2072
 #pragma warning disable IL3050
@@ -17,6 +19,7 @@ internal sealed class DelegateWrapper : Function
 {
     private static readonly JsString _name = new JsString("delegate");
     private readonly Delegate _d;
+    private readonly FastDelegateHandler _fdh;
     private readonly bool _delegateContainsParamsArgument;
 
     public DelegateWrapper(
@@ -24,6 +27,7 @@ internal sealed class DelegateWrapper : Function
         : base(engine, engine.Realm, _name, FunctionThisMode.Global)
     {
         _d = d;
+        _fdh = MethodWrapperPool.Get(d, engine.Options.ClrMethodWrapSlow);
         _prototype = engine.Realm.Intrinsics.Function.PrototypeObject;
 
         var parameterInfos = _d.Method.GetParameters();
@@ -133,16 +137,16 @@ internal sealed class DelegateWrapper : Function
 
         try
         {
-            var result = _d.DynamicInvoke(parameters);
+            var result = _fdh((object[]) parameters!);
             if (!IsAwaitable(result))
             {
                 return FromObject(Engine, result);
             }
             return ConvertAwaitableToPromise(Engine, result!);
         }
-        catch (TargetInvocationException exception)
+        catch (TargetInvocationException tie)
         {
-            Throw.MeaningfulException(Engine, exception);
+            Throw.MeaningfulException(Engine, tie);
             throw;
         }
     }
@@ -176,4 +180,24 @@ internal sealed class DelegateWrapper : Function
 #endif
     }
 
+    public static bool IsRequireEngineShift(ref ParameterInfo[] parameterInfos)
+    {
+        bool result = false;
+        if (parameterInfos.Length != 0 && (result = parameterInfos[0].ParameterType == typeof(Engine) || parameterInfos[0].ParameterType == typeof(Closure)))
+        {
+            int num = parameterInfos.Length - 1;
+            ParameterInfo[] array = new ParameterInfo[num];
+            Array.Copy(parameterInfos, 1, array, 0, num);
+            parameterInfos = array;
+        }
+        return result;
+    }
+
+    public static void EngineShift(ref object?[] array, Engine e)
+    {
+        object[] array2 = new object[array.Length + 1];
+        Array.Copy(array, 0, array2, 1, array.Length);
+        array2[0] = e;
+        array = array2;
+    }
 }

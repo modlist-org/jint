@@ -1870,13 +1870,8 @@ public sealed partial class Engine : IDisposable
             return;
         }
 
-#if SUPPORTS_WEAK_TABLE_CLEAR
-        _objectWrapperCache.Clear();
-#else
-        // we can expect that reflection is OK as we've been generating object wrappers already
         var clearMethod = _objectWrapperCache.GetType().GetMethod("Clear", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
         clearMethod?.Invoke(_objectWrapperCache, []);
-#endif
     }
 
     [DebuggerDisplay("Engine")]

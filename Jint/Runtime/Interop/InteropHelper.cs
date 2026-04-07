@@ -325,6 +325,7 @@ internal sealed class InteropHelper
         foreach (var method in methods)
         {
             var parameterInfos = method.Parameters;
+            DelegateWrapper.IsRequireEngineShift(ref parameterInfos);
             var arguments = argumentProvider(method, state);
             if (arguments.Length <= parameterInfos.Length
                 && arguments.Length >= parameterInfos.Length - method.ParameterDefaultValuesCount)

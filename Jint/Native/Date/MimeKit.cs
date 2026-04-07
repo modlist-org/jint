@@ -806,10 +806,10 @@ internal static class ByteExtensions
 
             // Note: not actually used...
             //if (bitcopy != CharType.None) {
-            //	for (i = 0; i < 256; i++) {
-            //		if ((table[i] & bitcopy) != 0)
-            //			table[i] &= ~bit;
-            //	}
+            //    for (i = 0; i < 256; i++) {
+            //        if ((table[i] & bitcopy) != 0)
+            //            table[i] &= ~bit;
+            //    }
             //}
         }
         else

@@ -831,7 +831,7 @@ internal sealed partial class StringPrototype : StringInstance
             return char.IsLetter(c) && (char.IsLower(c) || char.IsUpper(c) || CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.TitlecaseLetter);
         }
 
-#if SUPPORTS_UNICODE_CATEGORY_INT
+#if SUPPORTS_UNICODE_CATEGORY_INT && !NET481
         var category = CharUnicodeInfo.GetUnicodeCategory(cp);
 #else
         // net462 / netstandard2.0 lack the int overload; the 2-char string allocation is unavoidable here.
@@ -850,7 +850,7 @@ internal sealed partial class StringPrototype : StringInstance
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool IsCaseIgnorable(int cp)
     {
-#if SUPPORTS_UNICODE_CATEGORY_INT
+#if SUPPORTS_UNICODE_CATEGORY_IN && !NET481
         var category = CharUnicodeInfo.GetUnicodeCategory(cp);
 #else
         // net462 / netstandard2.0 lack the int overload; supplementary-plane lookups go through a 2-char string.

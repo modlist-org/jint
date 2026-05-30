@@ -242,7 +242,7 @@ internal static class RegExpInterpreter
 
             if (end > offset)
             {
-#if NETSTANDARD2_0 || NET462
+#if NETSTANDARD2_0 || NET462 || NET481
                 names[i] = Encoding.UTF8.GetString(bytecode.Slice(offset, end - offset).ToArray());
 #else
                 names[i] = Encoding.UTF8.GetString(bytecode.Slice(offset, end - offset));
@@ -771,7 +771,7 @@ internal static class RegExpInterpreter
 
                 if (litLen > 1)
                 {
-#if NETSTANDARD2_0 || NET462
+#if NETSTANDARD2_0 || NET462 || NET481
                     literal = litBuf.Slice(0, litLen).ToString();
 #else
                     literal = new string(litBuf.Slice(0, litLen));
@@ -818,7 +818,7 @@ internal static class RegExpInterpreter
 
                     if (litLen > 1)
                     {
-#if NETSTANDARD2_0 || NET462
+#if NETSTANDARD2_0 || NET462 || NET481
                         literal = litBuf.Slice(0, litLen).ToString();
 #else
                         literal = new string(litBuf.Slice(0, litLen));

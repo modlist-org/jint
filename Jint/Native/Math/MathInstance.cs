@@ -1,84 +1,43 @@
+using System.Runtime.CompilerServices;
 using Jint.Native.Number;
 using Jint.Native.Object;
-using Jint.Native.Symbol;
 using Jint.Runtime;
 using Jint.Runtime.Descriptors;
-using Jint.Runtime.Interop;
 
 namespace Jint.Native.Math;
 
-internal sealed class MathInstance : ObjectInstance
+[JsObject]
+internal sealed partial class MathInstance : ObjectInstance
 {
+    private readonly Realm _realm;
     private Random? _random;
 
-    internal MathInstance(Engine engine, ObjectPrototype objectPrototype) : base(engine)
+    [JsProperty(Name = "E", Flags = PropertyFlag.AllForbidden)] private static readonly JsNumber EValue = new(System.Math.E);
+    [JsProperty(Name = "LN10", Flags = PropertyFlag.AllForbidden)] private static readonly JsNumber LN10Value = new(System.Math.Log(10));
+    [JsProperty(Name = "LN2", Flags = PropertyFlag.AllForbidden)] private static readonly JsNumber LN2Value = new(System.Math.Log(2));
+    [JsProperty(Name = "LOG10E", Flags = PropertyFlag.AllForbidden)] private static readonly JsNumber LOG10EValue = new(System.Math.Log(System.Math.E, 10));
+    [JsProperty(Name = "LOG2E", Flags = PropertyFlag.AllForbidden)] private static readonly JsNumber LOG2EValue = new(System.Math.Log(System.Math.E, 2));
+    [JsProperty(Name = "PI", Flags = PropertyFlag.AllForbidden)] private static readonly JsNumber PIValue = JsNumber.PI;
+    [JsProperty(Name = "SQRT1_2", Flags = PropertyFlag.AllForbidden)] private static readonly JsNumber SQRT1_2Value = new(System.Math.Sqrt(0.5));
+    [JsProperty(Name = "SQRT2", Flags = PropertyFlag.AllForbidden)] private static readonly JsNumber SQRT2Value = new(System.Math.Sqrt(2));
+
+    [JsSymbol("ToStringTag", Flags = PropertyFlag.Configurable)] private static readonly JsString MathToStringTag = new("Math");
+
+    internal MathInstance(Engine engine, Realm realm, ObjectPrototype objectPrototype) : base(engine)
     {
+        _realm = realm;
         _prototype = objectPrototype;
     }
 
     protected override void Initialize()
     {
-        var properties = new PropertyDictionary(45, checkExistingKeys: false)
-        {
-            ["E"] = new PropertyDescriptor(System.Math.E, PropertyFlag.AllForbidden),
-            ["LN10"] = new PropertyDescriptor(System.Math.Log(10), PropertyFlag.AllForbidden),
-            ["LN2"] = new PropertyDescriptor(System.Math.Log(2), PropertyFlag.AllForbidden),
-            ["LOG10E"] = new PropertyDescriptor(System.Math.Log(System.Math.E, 10), PropertyFlag.AllForbidden),
-            ["LOG2E"] = new PropertyDescriptor(System.Math.Log(System.Math.E, 2), PropertyFlag.AllForbidden),
-            ["PI"] = new PropertyDescriptor(System.Math.PI, PropertyFlag.AllForbidden),
-            ["SQRT1_2"] = new PropertyDescriptor(System.Math.Sqrt(0.5), PropertyFlag.AllForbidden),
-            ["SQRT2"] = new PropertyDescriptor(System.Math.Sqrt(2), PropertyFlag.AllForbidden),
-            ["abs"] = new PropertyDescriptor(new ClrFunction(Engine, "abs", Abs, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["acos"] = new PropertyDescriptor(new ClrFunction(Engine, "acos", Acos, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["acosh"] = new PropertyDescriptor(new ClrFunction(Engine, "acosh", Acosh, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["asin"] = new PropertyDescriptor(new ClrFunction(Engine, "asin", Asin, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["asinh"] = new PropertyDescriptor(new ClrFunction(Engine, "asinh", Asinh, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["atan"] = new PropertyDescriptor(new ClrFunction(Engine, "atan", Atan, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["atan2"] = new PropertyDescriptor(new ClrFunction(Engine, "atan2", Atan2, 2, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["atanh"] = new PropertyDescriptor(new ClrFunction(Engine, "atanh", Atanh, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["cbrt"] = new PropertyDescriptor(new ClrFunction(Engine, "cbrt", Cbrt, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["ceil"] = new PropertyDescriptor(new ClrFunction(Engine, "ceil", Ceil, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["clz32"] = new PropertyDescriptor(new ClrFunction(Engine, "clz32", Clz32, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["cos"] = new PropertyDescriptor(new ClrFunction(Engine, "cos", Cos, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["cosh"] = new PropertyDescriptor(new ClrFunction(Engine, "cosh", Cosh, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["exp"] = new PropertyDescriptor(new ClrFunction(Engine, "exp", Exp, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["expm1"] = new PropertyDescriptor(new ClrFunction(Engine, "expm1", Expm1, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["f16round"] = new PropertyDescriptor(new ClrFunction(Engine, "f16round", F16Round, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["floor"] = new PropertyDescriptor(new ClrFunction(Engine, "floor", Floor, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["fround"] = new PropertyDescriptor(new ClrFunction(Engine, "fround", Fround, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["hypot"] = new PropertyDescriptor(new ClrFunction(Engine, "hypot", Hypot, 2, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["imul"] = new PropertyDescriptor(new ClrFunction(Engine, "imul", Imul, 2, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["log"] = new PropertyDescriptor(new ClrFunction(Engine, "log", Log, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["log10"] = new PropertyDescriptor(new ClrFunction(Engine, "log10", Log10, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["log1p"] = new PropertyDescriptor(new ClrFunction(Engine, "log1p", Log1p, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["log2"] = new PropertyDescriptor(new ClrFunction(Engine, "log2", Log2, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["max"] = new PropertyDescriptor(new ClrFunction(Engine, "max", Max, 2, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["min"] = new PropertyDescriptor(new ClrFunction(Engine, "min", Min, 2, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["pow"] = new PropertyDescriptor(new ClrFunction(Engine, "pow", Pow, 2, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["random"] = new PropertyDescriptor(new ClrFunction(Engine, "random", Random, 0, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["round"] = new PropertyDescriptor(new ClrFunction(Engine, "round", Round, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["sign"] = new PropertyDescriptor(new ClrFunction(Engine, "sign", Sign, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["sin"] = new PropertyDescriptor(new ClrFunction(Engine, "sin", Sin, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["sinh"] = new PropertyDescriptor(new ClrFunction(Engine, "sinh", Sinh, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["sumPrecise"] = new PropertyDescriptor(new ClrFunction(Engine, "sumPrecise", SumPrecise, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["sqrt"] = new PropertyDescriptor(new ClrFunction(Engine, "sqrt", Sqrt, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["tan"] = new PropertyDescriptor(new ClrFunction(Engine, "tan", Tan, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["tanh"] = new PropertyDescriptor(new ClrFunction(Engine, "tanh", Tanh, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["trunc"] = new PropertyDescriptor(new ClrFunction(Engine, "trunc", Truncate, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-        };
-        SetProperties(properties);
-
-        var symbols = new SymbolDictionary(1)
-        {
-            [GlobalSymbolRegistry.ToStringTag] = new PropertyDescriptor(new JsString("Math"), PropertyFlag.Configurable)
-        };
-        SetSymbols(symbols);
+        CreateProperties_Generated();
+        CreateSymbols_Generated();
     }
 
-    private static JsValue Abs(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private static JsValue Abs(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
-
         if (double.IsNaN(x))
         {
             return JsNumber.DoubleNaN;
@@ -95,10 +54,9 @@ internal sealed class MathInstance : ObjectInstance
         return System.Math.Abs(x);
     }
 
-    private static JsValue Acos(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private static JsValue Acos(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
-
         if (double.IsNaN(x) || (x > 1) || (x < -1))
         {
             return JsNumber.DoubleNaN;
@@ -111,10 +69,9 @@ internal sealed class MathInstance : ObjectInstance
         return System.Math.Acos(x);
     }
 
-    private static JsValue Acosh(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private static JsValue Acosh(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
-
         if (double.IsNaN(x) || x < 1)
         {
             return JsNumber.DoubleNaN;
@@ -123,10 +80,9 @@ internal sealed class MathInstance : ObjectInstance
         return System.Math.Log(x + System.Math.Sqrt(x * x - 1.0));
     }
 
-    private static JsValue Asin(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private static JsValue Asin(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
-
         if (double.IsNaN(x) || (x > 1) || (x < -1))
         {
             return JsNumber.DoubleNaN;
@@ -139,9 +95,9 @@ internal sealed class MathInstance : ObjectInstance
         return System.Math.Asin(x);
     }
 
-    private static JsValue Asinh(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private static JsValue Asinh(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
         if (double.IsInfinity(x) || NumberInstance.IsPositiveZero(x) || NumberInstance.IsNegativeZero(x))
         {
             return x;
@@ -150,10 +106,9 @@ internal sealed class MathInstance : ObjectInstance
         return System.Math.Log(x + System.Math.Sqrt(x * x + 1.0));
     }
 
-    private static JsValue Atan(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private static JsValue Atan(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
-
         if (double.IsNaN(x))
         {
             return JsNumber.DoubleNaN;
@@ -173,10 +128,9 @@ internal sealed class MathInstance : ObjectInstance
 
         return System.Math.Atan(x);
     }
-    private static JsValue Atanh(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private static JsValue Atanh(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
-
         if (double.IsNaN(x))
         {
             return JsNumber.DoubleNaN;
@@ -190,11 +144,9 @@ internal sealed class MathInstance : ObjectInstance
         return 0.5 * System.Math.Log((1.0 + x) / (1.0 - x));
     }
 
-    private static JsValue Atan2(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private static JsValue Atan2(JsValue thisObject, [ToNumber] double y, [ToNumber] double x)
     {
-        var y = TypeConverter.ToNumber(arguments.At(0));
-        var x = TypeConverter.ToNumber(arguments.At(1));
-
         // If either x or y is NaN, the result is NaN.
         if (double.IsNaN(x) || double.IsNaN(y))
         {
@@ -338,10 +290,9 @@ internal sealed class MathInstance : ObjectInstance
         return System.Math.Atan2(y, x);
     }
 
-    private static JsValue Ceil(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private static JsValue Ceil(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
-
         if (double.IsNaN(x))
         {
             return JsNumber.DoubleNaN;
@@ -373,10 +324,9 @@ internal sealed class MathInstance : ObjectInstance
         return System.Math.Ceiling(x);
     }
 
-    private static JsValue Cos(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private static JsValue Cos(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
-
         if (double.IsNaN(x))
         {
             return JsNumber.DoubleNaN;
@@ -397,10 +347,9 @@ internal sealed class MathInstance : ObjectInstance
         return System.Math.Cos(x);
     }
 
-    private static JsValue Cosh(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private static JsValue Cosh(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
-
         if (double.IsNaN(x))
         {
             return JsNumber.DoubleNaN;
@@ -421,10 +370,9 @@ internal sealed class MathInstance : ObjectInstance
         return System.Math.Cosh(x);
     }
 
-    private static JsValue Exp(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private static JsValue Exp(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
-
         if (double.IsNaN(x))
         {
             return JsNumber.DoubleNaN;
@@ -445,26 +393,24 @@ internal sealed class MathInstance : ObjectInstance
         return System.Math.Exp(x);
     }
 
-    private static JsValue Expm1(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private static JsNumber Expm1(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
-
         if (double.IsNaN(x) || NumberInstance.IsPositiveZero(x) || NumberInstance.IsNegativeZero(x) || double.IsPositiveInfinity(x))
         {
-            return arguments.At(0);
+            return JsNumber.Create(x);
         }
         if (double.IsNegativeInfinity(x))
         {
             return JsNumber.DoubleNegativeOne;
         }
 
-        return System.Math.Exp(x) - 1.0;
+        return JsNumber.Create(System.Math.Exp(x) - 1.0);
     }
 
-    private static JsValue Floor(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private static JsValue Floor(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
-
         if (double.IsNaN(x))
         {
             return JsNumber.DoubleNaN;
@@ -489,10 +435,9 @@ internal sealed class MathInstance : ObjectInstance
         return System.Math.Floor(x);
     }
 
-    private static JsValue Log(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private static JsValue Log(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
-
         if (double.IsNaN(x))
         {
             return JsNumber.DoubleNaN;
@@ -517,10 +462,9 @@ internal sealed class MathInstance : ObjectInstance
         return System.Math.Log(x);
     }
 
-    private static JsValue Log1p(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private static JsValue Log1p(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
-
         if (double.IsNaN(x))
         {
             return JsNumber.DoubleNaN;
@@ -538,16 +482,15 @@ internal sealed class MathInstance : ObjectInstance
 
         if (x == 0 || double.IsPositiveInfinity(x))
         {
-            return arguments.At(0);
+            return JsNumber.Create(x);
         }
 
         return System.Math.Log(1 + x);
     }
 
-    private static JsValue Log2(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private static JsValue Log2(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
-
         if (double.IsNaN(x))
         {
             return JsNumber.DoubleNaN;
@@ -572,10 +515,9 @@ internal sealed class MathInstance : ObjectInstance
         return System.Math.Log(x, 2);
     }
 
-    private static JsValue Log10(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private static JsValue Log10(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
-
         if (double.IsNaN(x))
         {
             return JsNumber.DoubleNaN;
@@ -603,16 +545,21 @@ internal sealed class MathInstance : ObjectInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-math.max
     /// </summary>
-    private static JsValue Max(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Length = 2)]
+    private static JsValue Max(JsValue thisObject, [Rest, ToNumber] ReadOnlySpan<double> values)
     {
-        if (arguments.Length == 0)
+        // [Rest, ToNumber] makes the dispatcher coerce every element via TypeConverter.ToNumber
+        // BEFORE this body runs (spec requirement — observable via valueOf side effects). The
+        // span is stack-allocated for ≤16 elements, heap for larger.
+        if (values.Length == 0)
         {
             return JsNumber.DoubleNegativeInfinity;
         }
 
         var highest = double.NegativeInfinity;
-        foreach (var number in Coerced(arguments))
+        for (var i = 0; i < values.Length; i++)
         {
+            var number = values[i];
             if (double.IsNaN(number))
             {
                 return JsNumber.DoubleNaN;
@@ -635,16 +582,19 @@ internal sealed class MathInstance : ObjectInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-math.min
     /// </summary>
-    private static JsValue Min(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Length = 2)]
+    private static JsValue Min(JsValue thisObject, [Rest, ToNumber] ReadOnlySpan<double> values)
     {
-        if (arguments.Length == 0)
+        // [Rest, ToNumber] preamble coerces every element first (see Max for spec-side rationale).
+        if (values.Length == 0)
         {
             return JsNumber.DoublePositiveInfinity;
         }
 
         var lowest = double.PositiveInfinity;
-        foreach (var number in Coerced(arguments))
+        for (var i = 0; i < values.Length; i++)
         {
+            var number = values[i];
             if (double.IsNaN(number))
             {
                 return JsNumber.DoubleNaN;
@@ -664,11 +614,9 @@ internal sealed class MathInstance : ObjectInstance
         return lowest;
     }
 
-    private static JsValue Pow(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private static JsValue Pow(JsValue thisObject, [ToNumber] double x, [ToNumber] double y)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
-        var y = TypeConverter.ToNumber(arguments.At(1));
-
         // check easy case where values are valid
         if (x > 1 && y > 1 && x < int.MaxValue && y < int.MaxValue)
         {
@@ -818,7 +766,8 @@ internal sealed class MathInstance : ObjectInstance
         return System.Math.Pow(x, y);
     }
 
-    private JsValue Random(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsValue Random(JsValue thisObject)
     {
         if (_random == null)
         {
@@ -828,9 +777,9 @@ internal sealed class MathInstance : ObjectInstance
         return _random.NextDouble();
     }
 
-    private static JsValue Round(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private static JsValue Round(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
         var round = System.Math.Round(x);
         if (round.Equals(x - 0.5))
         {
@@ -840,6 +789,7 @@ internal sealed class MathInstance : ObjectInstance
         return round;
     }
 
+    [JsFunction(Length = 1)]
     private static JsValue Fround(JsValue thisObject, JsCallArguments arguments)
     {
         var x = arguments.At(0);
@@ -850,6 +800,7 @@ internal sealed class MathInstance : ObjectInstance
     /// <summary>
     /// https://tc39.es/proposal-float16array/#sec-math.f16round
     /// </summary>
+    [JsFunction(Length = 1, Name = "f16round")]
     private static JsValue F16Round(JsValue thisObject, JsCallArguments arguments)
     {
 #if SUPPORTS_HALF
@@ -873,10 +824,9 @@ internal sealed class MathInstance : ObjectInstance
 #endif
     }
 
-    private static JsValue Sin(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private static JsValue Sin(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
-
         if (double.IsNaN(x))
         {
             return JsNumber.DoubleNaN;
@@ -897,10 +847,9 @@ internal sealed class MathInstance : ObjectInstance
         return System.Math.Sin(x);
     }
 
-    private static JsValue Sinh(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private static JsValue Sinh(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
-
         if (double.IsNaN(x))
         {
             return JsNumber.DoubleNaN;
@@ -925,28 +874,36 @@ internal sealed class MathInstance : ObjectInstance
         return System.Math.Sinh(x);
     }
 
-    private static JsValue Sqrt(JsValue thisObject, JsCallArguments arguments)
+    // The 3 wrappers below are pure forwards to System.Math — single-line bodies that the JIT can
+    // inline into the dispatcher's switch case so the call site collapses to the underlying intrinsic.
+    // Without the hint, the generator's `Call(...)` dispatcher (one switch with ~30 cases) is large
+    // enough that JIT may decline to inline these tiny callees by default. Spec edge cases (NaN,
+    // ±0, ±Infinity) are handled by the System.Math implementations themselves for these three.
+
+    [JsFunction]
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static JsValue Sqrt(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
         return System.Math.Sqrt(x);
     }
 
-    private static JsValue Tan(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static JsValue Tan(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
         return System.Math.Tan(x);
     }
 
-    private static JsValue Tanh(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static JsValue Tanh(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
         return System.Math.Tanh(x);
     }
 
-    private static JsValue Truncate(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Name = "trunc")]
+    private static JsValue Truncate(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
-
         if (double.IsNaN(x))
         {
             return JsNumber.DoubleNaN;
@@ -970,10 +927,9 @@ internal sealed class MathInstance : ObjectInstance
         return System.Math.Truncate(x);
     }
 
-    private static JsValue Sign(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private static JsValue Sign(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
-
         if (double.IsNaN(x))
         {
             return JsNumber.DoubleNaN;
@@ -997,10 +953,9 @@ internal sealed class MathInstance : ObjectInstance
         return System.Math.Sign(x);
     }
 
-    private static JsValue Cbrt(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private static JsValue Cbrt(JsValue thisObject, [ToNumber] double x)
     {
-        var x = TypeConverter.ToNumber(arguments.At(0));
-
         if (double.IsNaN(x))
         {
             return JsNumber.DoubleNaN;
@@ -1029,13 +984,14 @@ internal sealed class MathInstance : ObjectInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-math.hypot
     /// </summary>
-    private static JsValue Hypot(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Length = 2)]
+    private static JsValue Hypot(JsValue thisObject, [Rest, ToNumber] ReadOnlySpan<double> values)
     {
-        var coerced = Coerced(arguments);
-
-        foreach (var number in coerced)
+        // [Rest, ToNumber] preamble coerces every element first. Any Infinity returns +Infinity
+        // (even if a later value is NaN); otherwise NaN; otherwise sum-of-squares root.
+        for (var i = 0; i < values.Length; i++)
         {
-            if (double.IsInfinity(number))
+            if (double.IsInfinity(values[i]))
             {
                 return JsNumber.DoublePositiveInfinity;
             }
@@ -1043,8 +999,9 @@ internal sealed class MathInstance : ObjectInstance
 
         var onlyZero = true;
         double y = 0;
-        foreach (var number in coerced)
+        for (var i = 0; i < values.Length; i++)
         {
+            var number = values[i];
             if (double.IsNaN(number))
             {
                 return JsNumber.DoubleNaN;
@@ -1069,15 +1026,16 @@ internal sealed class MathInstance : ObjectInstance
     /// <summary>
     /// https://github.com/tc39/proposal-math-sum
     /// </summary>
+    [JsFunction(Length = 1, Name = "sumPrecise")]
     private JsValue SumPrecise(JsValue thisObject, JsCallArguments arguments)
     {
         var items = arguments.At(0);
         if (items.IsNullOrUndefined())
         {
-            Throw.TypeError(_engine.Realm);
+            Throw.TypeError(_realm);
         }
 
-        var iteratorRecord = items.GetIterator(_engine.Realm);
+        var iteratorRecord = items.GetIterator(_realm);
         var state = JsNumber.NegativeZero._value;
         List<double> sum = [];
         long count = 0;
@@ -1090,12 +1048,12 @@ internal sealed class MathInstance : ObjectInstance
                 count++;
                 if (count > 9007199254740992)
                 {
-                    Throw.RangeError(_engine.Realm);
+                    Throw.RangeError(_realm);
                 }
 
                 if (value is not JsNumber jsNumber)
                 {
-                    Throw.TypeError(_engine.Realm, "Input is not a number: " + next);
+                    Throw.TypeError(_realm, "Input is not a number: " + next);
                     return default;
                 }
 
@@ -1156,30 +1114,16 @@ internal sealed class MathInstance : ObjectInstance
         return Math.SumPrecise.Sum(sum);
     }
 
-    private static double[] Coerced(JsCallArguments arguments)
+    [JsFunction]
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static JsValue Imul(JsValue thisObject, [ToInt32] int x, [ToInt32] int y)
     {
-        // TODO stackalloc
-        var coerced = new double[arguments.Length];
-        for (var i = 0; i < arguments.Length; i++)
-        {
-            var argument = arguments[i];
-            coerced[i] = TypeConverter.ToNumber(argument);
-        }
-
-        return coerced;
-    }
-
-    private static JsValue Imul(JsValue thisObject, JsCallArguments arguments)
-    {
-        var x = TypeConverter.ToInt32(arguments.At(0));
-        var y = TypeConverter.ToInt32(arguments.At(1));
-
         return x * y;
     }
 
-    private static JsValue Clz32(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private static JsValue Clz32(JsValue thisObject, [ToInt32] int x)
     {
-        var x = TypeConverter.ToInt32(arguments.At(0));
         if (x < 0)
         {
             return 0;

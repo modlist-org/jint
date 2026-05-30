@@ -107,6 +107,43 @@ public class DefaultTypeConverter : ITypeConverter
             return true;
         }
 
+        // Handle conversion from object[] (JS array) to generic collection types like List<T>, IList<T>, IEnumerable<T>, etc.
+        // This must come before the generic assignability check because object[] incorrectly satisfies
+        // the assignability check for IList<string> etc. (since object[] implements IList<object>).
+        if (value is object?[] sourceArray && type.IsGenericType)
+        {
+            var genericArgs = type.GetGenericArguments();
+
+            if (genericArgs.Length == 1)
+            {
+                var genericTypeDef = type.GetGenericTypeDefinition();
+                var elementType = genericArgs[0];
+
+                if (genericTypeDef != typeof(Collection<>) && InteropHelper.GenericCollectionTypeDefinitions.Contains(genericTypeDef))
+                {
+                    var targetList = (IList) Activator.CreateInstance(typeof(List<>).MakeGenericType(elementType))!;
+                    foreach (var item in sourceArray)
+                    {
+                        targetList.Add(item is null ? null : Convert(item, elementType, formatProvider));
+                    }
+                    converted = targetList;
+                    return true;
+                }
+
+                if (genericTypeDef == typeof(Collection<>))
+                {
+                    var innerListType = typeof(List<>).MakeGenericType(elementType);
+                    var innerList = (IList) Activator.CreateInstance(innerListType)!;
+                    foreach (var item in sourceArray)
+                    {
+                        innerList.Add(item is null ? null : Convert(item, elementType, formatProvider));
+                    }
+                    converted = Activator.CreateInstance(type, innerList)!;
+                    return true;
+                }
+            }
+        }
+
         if (type.IsGenericType)
         {
             var result = InteropHelper.IsAssignableToGenericType(value.GetType(), type);
@@ -251,7 +288,7 @@ public class DefaultTypeConverter : ITypeConverter
                 var keys = (IEnumerable<string>) typeDescriptor.KeysAccessor.GetValue(value)!;
                 foreach (var key in keys)
                 {
-                    if (typeDescriptor.TryGetValue(value, key, out var sourceVal))
+                    if (typeDescriptor.TryGetDictionaryValue(value, key, out var sourceVal))
                     {
                         targetDict[key] = Convert(sourceVal, targetValueType, formatProvider);
                     }
@@ -269,8 +306,8 @@ public class DefaultTypeConverter : ITypeConverter
                         continue;
                     }
 
-                    if (typeDescriptor.TryGetValue(value, member.Name, out var val)
-                        || typeDescriptor.TryGetValue(value, member.Name.UpperToLowerCamelCase(), out val))
+                    if (typeDescriptor.TryGetDictionaryValue(value, member.Name, out var val)
+                        || typeDescriptor.TryGetDictionaryValue(value, member.Name.UpperToLowerCamelCase(), out val))
                     {
                         var output = Convert(val, member.GetDefinedType(), formatProvider);
                         member.SetValue(obj, output);

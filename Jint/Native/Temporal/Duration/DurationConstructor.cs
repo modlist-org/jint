@@ -9,7 +9,8 @@ namespace Jint.Native.Temporal;
 /// <summary>
 /// https://tc39.es/proposal-temporal/#sec-temporal.duration
 /// </summary>
-internal sealed class DurationConstructor : Constructor
+[JsObject]
+internal sealed partial class DurationConstructor : Constructor
 {
     private static readonly JsString _functionName = new("Duration");
 
@@ -27,25 +28,15 @@ internal sealed class DurationConstructor : Constructor
 
     public DurationPrototype PrototypeObject { get; }
 
-    protected override void Initialize()
-    {
-        const PropertyFlag PropertyFlags = PropertyFlag.Writable | PropertyFlag.Configurable;
-        const PropertyFlag LengthFlags = PropertyFlag.Configurable;
+    protected override void Initialize() => CreateProperties_Generated();
 
-        var properties = new PropertyDictionary(2, checkExistingKeys: false)
-        {
-            ["from"] = new(new ClrFunction(Engine, "from", From, 1, LengthFlags), PropertyFlags),
-            ["compare"] = new(new ClrFunction(Engine, "compare", Compare, 2, LengthFlags), PropertyFlags),
-        };
-        SetProperties(properties);
-    }
 
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.duration.from
     /// </summary>
-    private JsDuration From(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsDuration From(JsValue thisObject, JsValue item)
     {
-        var item = arguments.At(0);
         // If item is already a Duration, create a copy (spec requires a new object)
         if (item is JsDuration duration)
         {
@@ -57,17 +48,13 @@ internal sealed class DurationConstructor : Constructor
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.duration.compare
     /// </summary>
-    private JsNumber Compare(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Length = 2)]
+    private JsNumber Compare(JsValue thisObject, JsValue one, JsValue two, JsValue options)
     {
-        var one = ToTemporalDuration(arguments.At(0));
-        var two = ToTemporalDuration(arguments.At(1));
-        var options = arguments.At(2);
-
+        var d1 = ToTemporalDuration(one).DurationRecord;
+        var d2 = ToTemporalDuration(two).DurationRecord;
         var optionsObj = TemporalHelpers.GetOptionsObject(_realm, options);
         var relativeToResult = TemporalHelpers.GetTemporalRelativeToOption(_engine, _realm, optionsObj);
-
-        var d1 = one.DurationRecord;
-        var d2 = two.DurationRecord;
 
         // Step 5: If all components are equal, return +0
         if (d1.Years == d2.Years && d1.Months == d2.Months && d1.Weeks == d2.Weeks &&

@@ -547,6 +547,340 @@ public partial class InteropTests : IDisposable
             ");
     }
 
+    public class DictionaryKeyModel
+    {
+        public string Value { get; set; } = "test";
+    }
+
+    public class DictionaryKeyDerivedModel : DictionaryKeyModel
+    {
+    }
+
+    public enum DictionaryKeyEnum
+    {
+        Foo,
+        Bar,
+    }
+
+    [Fact]
+    public void CanGetIndexUsingObjectKey()
+    {
+        // repro from https://github.com/sebastienros/jint/issues/2441
+        var model = new DictionaryKeyModel();
+        var dictionary = new Dictionary<DictionaryKeyModel, string>
+        {
+            [model] = "value1",
+        };
+        _engine.SetValue("obj", dictionary);
+        _engine.SetValue("model", model);
+
+        var result = _engine.Evaluate("'' + obj[model]");
+        Assert.Equal("value1", result.AsString());
+    }
+
+    [Fact]
+    public void CanSetIndexUsingObjectKey()
+    {
+        var model = new DictionaryKeyModel();
+        var dictionary = new Dictionary<DictionaryKeyModel, string>
+        {
+            [model] = "value1",
+        };
+        _engine.SetValue("obj", dictionary);
+        _engine.SetValue("model", model);
+
+        _engine.Execute("obj[model] = 'updated';");
+        Assert.Equal("updated", dictionary[model]);
+    }
+
+    [Fact]
+    public void ObjectKeyDictionary_MissingKeyReturnsUndefined()
+    {
+        var model = new DictionaryKeyModel();
+        var other = new DictionaryKeyModel();
+        var dictionary = new Dictionary<DictionaryKeyModel, string>
+        {
+            [model] = "value1",
+        };
+        _engine.SetValue("obj", dictionary);
+        _engine.SetValue("present", model);
+        _engine.SetValue("absent", other);
+
+        Assert.Equal("value1", _engine.Evaluate("obj[present]").AsString());
+        Assert.True(_engine.Evaluate("obj[absent] === undefined").AsBoolean());
+    }
+
+    [Fact]
+    public void ObjectKeyDictionary_HasReturnsTrueForPresentKey()
+    {
+        var present = new DictionaryKeyModel();
+        var absent = new DictionaryKeyModel();
+        var dictionary = new Dictionary<DictionaryKeyModel, string>
+        {
+            [present] = "value1",
+        };
+        _engine.SetValue("obj", dictionary);
+        _engine.SetValue("present", present);
+        _engine.SetValue("absent", absent);
+
+        Assert.True(_engine.Evaluate("present in obj").AsBoolean());
+        Assert.False(_engine.Evaluate("absent in obj").AsBoolean());
+    }
+
+    [Fact]
+    public void ObjectKeyDictionary_DeleteRemovesEntry()
+    {
+        var model = new DictionaryKeyModel();
+        var dictionary = new Dictionary<DictionaryKeyModel, string>
+        {
+            [model] = "value1",
+        };
+        _engine.SetValue("obj", dictionary);
+        _engine.SetValue("model", model);
+
+        _engine.Execute("delete obj[model];");
+        Assert.False(dictionary.ContainsKey(model));
+    }
+
+    [Fact]
+    public void ReadOnlyDictionary_WithObjectKey_AllowsRead()
+    {
+        var model = new DictionaryKeyModel();
+        var dictionary = new Dictionary<DictionaryKeyModel, string>
+        {
+            [model] = "value1",
+        };
+        IReadOnlyDictionary<DictionaryKeyModel, string> readOnly = dictionary;
+        _engine.SetValue("obj", readOnly);
+        _engine.SetValue("model", model);
+
+        Assert.Equal("value1", _engine.Evaluate("'' + obj[model]").AsString());
+    }
+
+    [Fact]
+    public void ReadOnlyDictionary_WithObjectKey_HasReturnsTrueForPresentKey()
+    {
+        var present = new DictionaryKeyModel();
+        var absent = new DictionaryKeyModel();
+        IReadOnlyDictionary<DictionaryKeyModel, string> readOnly = new Dictionary<DictionaryKeyModel, string>
+        {
+            [present] = "value1",
+        };
+        _engine.SetValue("obj", readOnly);
+        _engine.SetValue("present", present);
+        _engine.SetValue("absent", absent);
+
+        Assert.True(_engine.Evaluate("present in obj").AsBoolean());
+        Assert.False(_engine.Evaluate("absent in obj").AsBoolean());
+    }
+
+    [Fact]
+    public void ObjectKeyDictionary_DerivedKeyTypeWorks()
+    {
+        var derived = new DictionaryKeyDerivedModel();
+        var dictionary = new Dictionary<DictionaryKeyModel, string>
+        {
+            [derived] = "fromDerived",
+        };
+        _engine.SetValue("obj", dictionary);
+        _engine.SetValue("model", derived);
+
+        Assert.Equal("fromDerived", _engine.Evaluate("'' + obj[model]").AsString());
+    }
+
+    [Fact]
+    public void ObjectKeyDictionary_StructKey()
+    {
+        var key = Guid.NewGuid();
+        var dictionary = new Dictionary<Guid, string>
+        {
+            [key] = "valueForGuid",
+        };
+        _engine.SetValue("obj", dictionary);
+        _engine.SetValue("key", key);
+
+        Assert.Equal("valueForGuid", _engine.Evaluate("'' + obj[key]").AsString());
+    }
+
+    [Fact]
+    public void ObjectKeyDictionary_SetWithIncompatibleValueType_SloppyMode_NoOp()
+    {
+        var model = new DictionaryKeyModel();
+        var dictionary = new Dictionary<DictionaryKeyModel, int>
+        {
+            [model] = 42,
+        };
+        _engine.SetValue("obj", dictionary);
+        _engine.SetValue("model", model);
+
+        // assigning a non-numeric string to an int-valued dictionary must not throw and must not corrupt the entry
+        _engine.Execute("obj[model] = 'not an int';");
+        Assert.Equal(42, dictionary[model]);
+    }
+
+    [Fact]
+    public void ObjectKeyDictionary_EnumKey()
+    {
+        var dictionary = new Dictionary<DictionaryKeyEnum, string>
+        {
+            [DictionaryKeyEnum.Foo] = "fooValue",
+            [DictionaryKeyEnum.Bar] = "barValue",
+        };
+        _engine.SetValue("obj", dictionary);
+        _engine.SetValue("foo", DictionaryKeyEnum.Foo);
+        _engine.SetValue("bar", DictionaryKeyEnum.Bar);
+
+        Assert.Equal("fooValue", _engine.Evaluate("'' + obj[foo]").AsString());
+        Assert.Equal("barValue", _engine.Evaluate("'' + obj[bar]").AsString());
+    }
+
+    [Fact]
+    public void ObjectKeyDictionary_IntegerKeyReturnsUndefined()
+    {
+        // a JS number key against an object-keyed dictionary should return undefined cleanly,
+        // not throw, and not match by coincidence
+        var model = new DictionaryKeyModel();
+        var dictionary = new Dictionary<DictionaryKeyModel, string>
+        {
+            [model] = "value1",
+        };
+        _engine.SetValue("obj", dictionary);
+
+        Assert.True(_engine.Evaluate("obj[42] === undefined").AsBoolean());
+    }
+
+    [Fact]
+    public void IntegerKeyedDictionary_ResolvesByNumericKey()
+    {
+        // Dictionary<int, T> went through the IsStringKeyedGenericDictionary path before this
+        // change (which stringified the int and likely failed); now it routes through the
+        // non-string-keyed path and resolves directly via the int key.
+        var dictionary = new Dictionary<int, string>
+        {
+            [1] = "one",
+            [2] = "two",
+        };
+        _engine.SetValue("obj", dictionary);
+
+        Assert.Equal("one", _engine.Evaluate("'' + obj[1]").AsString());
+        Assert.Equal("two", _engine.Evaluate("'' + obj[2]").AsString());
+        Assert.True(_engine.Evaluate("obj[3] === undefined").AsBoolean());
+        Assert.True(_engine.Evaluate("1 in obj").AsBoolean());
+        Assert.False(_engine.Evaluate("3 in obj").AsBoolean());
+
+        _engine.Execute("obj[3] = 'three';");
+        Assert.Equal("three", dictionary[3]);
+
+        _engine.Execute("delete obj[1];");
+        Assert.False(dictionary.ContainsKey(1));
+    }
+
+    [Fact]
+    public void ObjectKeyDictionary_SymbolKeyHandledByBase()
+    {
+        // symbol keys must not be hijacked by the new non-string-keyed dict branches —
+        // Symbol.iterator should still resolve to the iterator function (Dictionary<,> is enumerable)
+        var model = new DictionaryKeyModel();
+        var dictionary = new Dictionary<DictionaryKeyModel, string>
+        {
+            [model] = "value1",
+        };
+        _engine.SetValue("obj", dictionary);
+
+        Assert.Equal("function", _engine.Evaluate("typeof obj[Symbol.iterator]").AsString());
+    }
+
+    [Fact]
+    public void ObjectKeyDictionary_NullKeyReturnsUndefined()
+    {
+        // null/undefined JS keys must short-circuit cleanly, not crash with ArgumentNullException
+        // when reflectively invoking Dictionary<TKey, TValue>.TryGetValue/ContainsKey/Remove.
+        var dictionary = new Dictionary<DictionaryKeyModel, string>
+        {
+            [new DictionaryKeyModel()] = "value1",
+        };
+        _engine.SetValue("obj", dictionary);
+
+        Assert.True(_engine.Evaluate("obj[null] === undefined").AsBoolean());
+        Assert.True(_engine.Evaluate("obj[undefined] === undefined").AsBoolean());
+        Assert.False(_engine.Evaluate("null in obj").AsBoolean());
+        Assert.False(_engine.Evaluate("delete obj[null]; null in obj").AsBoolean());
+    }
+
+    [Fact]
+    public void ObjectKeyDictionary_NullKeyAssignment_SloppyMode_NoOp()
+    {
+        // mirror of the read-side null guard: assigning to obj[null] must not crash with
+        // ArgumentNullException when reflectively invoking the indexer setter, and must not
+        // pollute the dictionary with a null key.
+        var dictionary = new Dictionary<DictionaryKeyModel, string>
+        {
+            [new DictionaryKeyModel()] = "value1",
+        };
+        _engine.SetValue("obj", dictionary);
+
+        _engine.Execute("obj[null] = 'should not stick';");
+        Assert.Single(dictionary);
+        Assert.DoesNotContain("should not stick", dictionary.Values);
+    }
+
+    [Fact]
+    public void ObjectKeyDictionary_ObjectValuedDictionary_StoresUnwrappedClrValue()
+    {
+        // Dictionary<TKey, object> must receive the unwrapped CLR value, not the raw JsValue —
+        // otherwise C# callers reading the dictionary back get JsString/JsNumber surprises.
+        var model = new DictionaryKeyModel();
+        var dictionary = new Dictionary<DictionaryKeyModel, object>();
+        _engine.SetValue("obj", dictionary);
+        _engine.SetValue("model", model);
+
+        _engine.Execute("obj[model] = 'hello';");
+        Assert.Equal("hello", dictionary[model]);
+        Assert.IsType<string>(dictionary[model]);
+    }
+
+    [Fact]
+    public void ObjectKeyDictionary_SetWithIncompatibleValueType_StrictMode_Throws()
+    {
+        // strict mode must escalate the [[Set]] failure to a TypeError
+        var model = new DictionaryKeyModel();
+        var dictionary = new Dictionary<DictionaryKeyModel, int>
+        {
+            [model] = 42,
+        };
+        _engine.SetValue("obj", dictionary);
+        _engine.SetValue("model", model);
+
+        var ex = Assert.Throws<JavaScriptException>(() => _engine.Execute("'use strict'; obj[model] = 'not an int';"));
+        Assert.Contains("Cannot assign", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(42, dictionary[model]);
+    }
+
+    [Fact]
+    public void ObjectKeyDictionary_FrozenWrapper_BlocksWrites()
+    {
+        // Object.freeze on the wrapper sets Extensible=false, which the [[Set]] path treats as
+        // a blanket write block (matching the existing string-keyed dict behavior). Lock in the
+        // contract so a future change to relax this is a deliberate decision, not a regression.
+        var model = new DictionaryKeyModel();
+        var dictionary = new Dictionary<DictionaryKeyModel, string>
+        {
+            [model] = "value1",
+        };
+        _engine.SetValue("obj", dictionary);
+        _engine.SetValue("model", model);
+
+        _engine.Execute("Object.freeze(obj);");
+
+        // sloppy mode: silent failure, value unchanged
+        _engine.Execute("obj[model] = 'updated';");
+        Assert.Equal("value1", dictionary[model]);
+
+        // strict mode: TypeError, value unchanged
+        Assert.Throws<JavaScriptException>(() => _engine.Execute("'use strict'; obj[model] = 'updated';"));
+        Assert.Equal("value1", dictionary[model]);
+    }
+
     [Fact]
     public void CanUseIndexOnCollection()
     {
@@ -2151,6 +2485,24 @@ public partial class InteropTests : IDisposable
     }
 
     [Fact]
+    public void CaughtClrExceptionShouldExposeJavaScriptLocation()
+    {
+        var engine = new Engine(o => o.CatchClrExceptions())
+            .SetValue("Thrower", typeof(Thrower));
+
+        const string script = @"// line 1
+// line 2
+new Thrower().ThrowExceptionWithMessage('boom');";
+
+        var ex = Assert.Throws<JavaScriptException>(() => engine.Execute(script));
+        Assert.Equal("boom", ex.Message);
+        Assert.NotEqual(default, ex.Location);
+        Assert.Equal(3, ex.Location.Start.Line);
+        Assert.NotNull(ex.JavaScriptStackTrace);
+        Assert.Contains("3:", ex.JavaScriptStackTrace);
+    }
+
+    [Fact]
     public void ShouldNotCatchClrFromApply()
     {
         var engine = new Engine(options =>
@@ -2625,6 +2977,22 @@ public partial class InteropTests : IDisposable
         var engine = new Engine();
         engine.SetValue("dictionaryTest", new DictionaryTest());
         engine.Evaluate("dictionaryTest.test4({ value: 'world' });");
+    }
+
+    [Fact]
+    public void ShouldNotChangeFunctionArgumentsWhenFunctionStoredInDictionary()
+    {
+        var engine = new Engine();
+        engine.SetValue("globalScope", new Dictionary<string, object>());
+
+        engine.Execute("""
+            globalScope.fuzzyScore = function (pattern, text) {
+                return pattern + ":" + text;
+            };
+            """);
+
+        var result = engine.Evaluate("globalScope.fuzzyScore('abc', 'xyz');");
+        Assert.Equal("abc:xyz", result.AsString());
     }
 
     [Fact]
@@ -3241,6 +3609,106 @@ public partial class InteropTests : IDisposable
         Assert.Equal("C", engine.Evaluate("list.pop()"));
         Assert.Equal(2, list.Count);
         Assert.Equal(-1, engine.Evaluate("list.lastIndexOf('C')"));
+    }
+
+    [Fact]
+    public void ListReverseDefaultsToClrSemantics()
+    {
+        // Default: List<T>.Reverse() (void) wins over Array.prototype.reverse — locks in current behavior.
+        // CLR void is exposed to JS as null (not undefined), and the list is reversed in place.
+        var engine = new Jint.Engine();
+        var list = new List<int> { 1, 2, 3 };
+        engine.SetValue("list", list);
+
+        var result = engine.Evaluate("list.reverse()");
+        Assert.True(result.IsNull());
+        Assert.Equal(new[] { 3, 2, 1 }, list);
+    }
+
+    [Fact]
+    public void PreferJsPrototypeMethodsMakesArrayReverseWin()
+    {
+        var engine = new Jint.Engine(cfg => cfg.PreferJsPrototypeMethods());
+        var list = new List<int> { 1, 2, 3 };
+        engine.SetValue("list", list);
+
+        Assert.True(engine.Evaluate("list.reverse() === list").AsBoolean());
+        Assert.Equal(new[] { 3, 2, 1 }, list);
+    }
+
+    [Fact]
+    public void PreferJsPrototypeMethodsMakesArraySortWin()
+    {
+        // Without the flag List<int>.Sort gives ascending int sort and returns void.
+        // With the flag, Array.prototype.sort returns the array and uses JS string-compare semantics
+        // ([10, 2, 1] -> [1, 10, 2] because "10" < "2" lexicographically).
+        var engine = new Jint.Engine(cfg => cfg.PreferJsPrototypeMethods());
+        var list = new List<int> { 10, 2, 1 };
+        engine.SetValue("list", list);
+
+        Assert.Equal("[1,10,2]", engine.Evaluate("JSON.stringify(list.sort())").AsString());
+    }
+
+    [Fact]
+    public void PreferJsPrototypeMethodsLeavesNonClashingClrMethodsAlone()
+    {
+        // Methods without an Array.prototype counterpart must still resolve to CLR.
+        var engine = new Jint.Engine(cfg => cfg.PreferJsPrototypeMethods());
+        var list = new List<string> { "A", "B" };
+        engine.SetValue("list", list);
+
+        engine.Evaluate("list.Add('C')");
+        Assert.Equal(3, list.Count);
+        Assert.Equal("C", list[2]);
+
+        engine.Evaluate("list.RemoveAt(0)");
+        Assert.Equal(new[] { "B", "C" }, list);
+    }
+
+    [Fact]
+    public void PreferJsPrototypeMethodsKeepsLengthMappedToCount()
+    {
+        // length is served by the fast path in ObjectWrapper.Get — must be unaffected.
+        var engine = new Jint.Engine(cfg => cfg.PreferJsPrototypeMethods());
+        var list = new List<int> { 10, 20, 30, 40 };
+        engine.SetValue("list", list);
+
+        Assert.Equal(4, engine.Evaluate("list.length").AsNumber());
+    }
+
+    [Fact]
+    public void PreferJsPrototypeMethodsDoesNotAffectPlainObjectWrapper()
+    {
+        // POCOs get Object.prototype, which the check explicitly skips, so CLR ToString still wins.
+        var engine = new Jint.Engine(cfg => cfg.PreferJsPrototypeMethods());
+        engine.SetValue("obj", new ClassWithToString());
+
+        Assert.Equal("Test", engine.Evaluate("obj.toString()").AsString());
+    }
+
+    [Fact]
+    public void ListReverseCanBeFixedTodayWithMemberFilter()
+    {
+        // Documents the workaround that works without the new flag, on existing Jint versions.
+        var engine = new Jint.Engine(options => options.SetTypeResolver(new TypeResolver
+        {
+            MemberFilter = m =>
+            {
+                if (m is System.Reflection.MethodInfo mi
+                    && mi.DeclaringType is { } dt
+                    && typeof(System.Collections.IList).IsAssignableFrom(dt))
+                {
+                    return mi.Name is not ("Reverse" or "Sort");
+                }
+                return true;
+            }
+        }));
+
+        var list = new List<int> { 1, 2, 3 };
+        engine.SetValue("list", list);
+
+        Assert.True(engine.Evaluate("list.reverse() === list").AsBoolean());
+        Assert.Equal(new[] { 3, 2, 1 }, list);
     }
 
     [Fact]
@@ -4193,5 +4661,84 @@ try {
 
         var geometry = (GeometryWrapperWithProperty) feature.Geometry;
         Assert.Equal(99.9, geometry.X);
+    }
+
+    public class TypeWithListConstructor
+    {
+        public TypeWithListConstructor(List<string> items)
+        {
+            Items = items;
+        }
+
+        public List<string> Items { get; }
+    }
+
+    public class TypeWithCollectionParameters
+    {
+        public IList<string> IListItems { get; set; } = [];
+        public ICollection<string> ICollectionItems { get; set; } = [];
+        public IEnumerable<string> IEnumerableItems { get; set; } = [];
+        public IReadOnlyList<string> IReadOnlyListItems { get; set; } = [];
+        public IReadOnlyCollection<string> IReadOnlyCollectionItems { get; set; } = [];
+
+        public void SetIListItems(IList<string> items) => IListItems = items;
+        public void SetICollectionItems(ICollection<string> items) => ICollectionItems = items;
+        public void SetIEnumerableItems(IEnumerable<string> items) => IEnumerableItems = items;
+        public void SetIReadOnlyListItems(IReadOnlyList<string> items) => IReadOnlyListItems = items;
+        public void SetIReadOnlyCollectionItems(IReadOnlyCollection<string> items) => IReadOnlyCollectionItems = items;
+    }
+
+    [Fact]
+    public void ShouldConvertJsArrayToListWhenPassedToConstructor()
+    {
+        var engine = new Engine(options => options.AllowClr(GetType().Assembly));
+        engine.SetValue("TypeWithListConstructor", TypeReference.CreateTypeReference(engine, typeof(TypeWithListConstructor)));
+
+        var result = engine.Evaluate("new TypeWithListConstructor(['a', 'b', 'c'])");
+        var obj = result.ToObject() as TypeWithListConstructor;
+
+        Assert.NotNull(obj);
+        Assert.Equal(3, obj.Items.Count);
+        Assert.Equal("a", obj.Items[0]);
+        Assert.Equal("b", obj.Items[1]);
+        Assert.Equal("c", obj.Items[2]);
+    }
+
+    [Fact]
+    public void ShouldConvertJsArrayToEmptyListWhenPassedToConstructor()
+    {
+        var engine = new Engine(options => options.AllowClr(GetType().Assembly));
+        engine.SetValue("TypeWithListConstructor", TypeReference.CreateTypeReference(engine, typeof(TypeWithListConstructor)));
+
+        var result = engine.Evaluate("new TypeWithListConstructor([])");
+        var obj = result.ToObject() as TypeWithListConstructor;
+
+        Assert.NotNull(obj);
+        Assert.Empty(obj.Items);
+    }
+
+    [Fact]
+    public void ShouldConvertJsArrayToGenericCollectionTypes()
+    {
+        var engine = new Engine(options => options.AllowClr(GetType().Assembly));
+        var target = new TypeWithCollectionParameters();
+        engine.SetValue("target", target);
+
+        engine.Evaluate("target.SetIListItems(['a', 'b'])");
+        Assert.Equal(2, target.IListItems.Count);
+        Assert.Equal("a", target.IListItems[0]);
+
+        engine.Evaluate("target.SetICollectionItems(['c', 'd'])");
+        Assert.Equal(2, target.ICollectionItems.Count);
+
+        engine.Evaluate("target.SetIEnumerableItems(['e', 'f'])");
+        Assert.Equal(2, target.IEnumerableItems.Count());
+
+        engine.Evaluate("target.SetIReadOnlyListItems(['g', 'h'])");
+        Assert.Equal(2, target.IReadOnlyListItems.Count);
+        Assert.Equal("g", target.IReadOnlyListItems[0]);
+
+        engine.Evaluate("target.SetIReadOnlyCollectionItems(['i', 'j'])");
+        Assert.Equal(2, target.IReadOnlyCollectionItems.Count);
     }
 }

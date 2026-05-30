@@ -812,6 +812,41 @@ public partial class EngineTests : IDisposable
     }
 
     [Fact]
+    public void ShouldWriteLargeNumbersUsingBasesWithoutOverflow()
+    {
+        // Values above long.MaxValue (~9.22e18) previously overflowed when cast to long,
+        // producing wrong results or runtime errors. The expected strings below are the
+        // mathematically exact base-r representation of the stored double value.
+        RunTest(@"
+                // Power-of-2 radices: bit-exact, matches V8/SpiderMonkey output.
+                assert((-12345e+30).toString(2) === '-100110000010100111110011100101010111110111100101011010000000000000000000000000000000000000000000000000000000000000');
+                assert((-12345e+30).toString(16) === '-260a7ce55f795a000000000000000');
+                assert((1e+20).toString(16) === '56bc75e2d63100000');
+                assert((1e+20).toString(8) === '12657072742654304000000');
+
+                // Non-power-of-2 radices: previously gave wrong digits (or threw).
+                // Jint emits the mathematically exact representation of the stored double,
+                // which differs from V8's approximation for these values - both are valid
+                // per the 'implementation-approximated' clause of the spec.
+                assert((1e+20).toString(3) === '220200020122120112010222022122002000100201');
+                assert((1e+20).toString(7) === '344015313561621001452562');
+                assert((1e+25).toString(36) === '198exbvshgq9n8mps');
+                assert((-12345e+30).toString(5) === '-3214133420230123110000004012030333321240102013132');
+
+                // Small values must still go through the fast (long) path.
+                assert((255).toString(16) === 'ff');
+                assert((-255).toString(16) === '-ff');
+                assert((0).toString(2) === '0');
+                assert((1).toString(2) === '1');
+                assert((15.1).toString(36) === 'f.3llllllllkau6snqkpygsc3di');
+
+                // Around the long.MaxValue boundary (2^63 = 9223372036854775808 as double).
+                assert((9223372036854775000).toString(16) === '7ffffffffffffc00');
+                assert((-9223372036854775000).toString(16) === '-7ffffffffffffc00');
+            ");
+    }
+
+    [Fact]
     public void ShouldNotAlterSlashesInRegex()
     {
         RunTest(@"
@@ -2009,8 +2044,9 @@ var prep = function (fn) { fn(); };
     [Fact]
     public void ShouldSetYearBefore1970()
     {
-
-        RunTest(@"
+        new Engine(options => options.LocalTimeZone(TimeZoneInfo.Utc))
+            .SetValue("equal", new Action<object, object>(Assert.Equal))
+            .Execute(@"
                 var d = new Date('1969-01-01T08:17:00Z');
                 d.setYear(2015);
                 equal('2015-01-01T08:17:00.000Z', d.toISOString());
@@ -2875,6 +2911,23 @@ x.test = {
             .AsNumber();
 
         Assert.Equal(1, result);
+    }
+
+    [Fact]
+    public void MemberExpressionOnAssignmentShouldEvaluateRightHandSideOnce()
+    {
+        var engine = new Engine();
+
+        engine.Execute(@"
+            var callCount = 0;
+            function produce() { callCount++; return 'abc'; }
+            var x;
+            var len = (x = produce()).length;
+            ");
+
+        Assert.Equal(1, engine.Evaluate("callCount").AsNumber());
+        Assert.Equal(3, engine.Evaluate("len").AsNumber());
+        Assert.Equal("abc", engine.Evaluate("x").AsString());
     }
 
     [Fact]

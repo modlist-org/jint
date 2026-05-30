@@ -21,10 +21,13 @@ internal sealed class TypeDescriptor
     private static readonly Type _stringType = typeof(string);
 
     private readonly MethodInfo? _tryGetValueMethod;
-    private readonly MethodInfo? _removeMethod;
     private readonly PropertyInfo? _keysAccessor;
+    private readonly Type? _keyType;
     private readonly Type? _valueType;
     private readonly MethodInfo? _toJsonMethod;
+    private readonly MethodInfo? _genericContainsKeyMethod;
+    private readonly MethodInfo? _genericIndexerSetMethod;
+    private readonly MethodInfo? _genericRemoveMethod;
 
     private TypeDescriptor(
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods | DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)]
@@ -36,15 +39,21 @@ internal sealed class TypeDescriptor
             out var isEnumerable,
             out var isDictionary,
             out _tryGetValueMethod,
-            out _removeMethod,
             out _keysAccessor,
+            out _keyType,
             out _valueType,
             out var lengthProperty,
             out var integerIndexer,
-            out _toJsonMethod);
+            out _toJsonMethod,
+            out _genericContainsKeyMethod,
+            out _genericIndexerSetMethod,
+            out _genericRemoveMethod);
 
         IntegerIndexerProperty = integerIndexer;
         IsDictionary = _tryGetValueMethod is not null || isDictionary;
+        IsGenericDictionary = _tryGetValueMethod is not null;
+        IsStringKeyedGenericDictionary = IsGenericDictionary && _keyType == _stringType;
+        IsNonStringKeyedGenericDictionary = IsGenericDictionary && _keyType != _stringType;
 
         // dictionaries are considered normal-object-like
         IsArrayLike = !IsDictionary && isCollection;
@@ -72,15 +81,17 @@ internal sealed class TypeDescriptor
     public PropertyInfo? IntegerIndexerProperty { get; }
 
     public bool IsDictionary { get; }
-    public bool IsStringKeyedGenericDictionary => _tryGetValueMethod is not null;
+    public bool IsStringKeyedGenericDictionary { get; }
+    public bool IsGenericDictionary { get; }
+    public bool IsNonStringKeyedGenericDictionary { get; }
+    public Type? GenericDictionaryKeyType => _keyType;
+    public Type? GenericDictionaryValueType => _valueType;
     public bool IsEnumerable { get; }
     public bool IsDisposable { get; }
     public bool IsAsyncDisposable { get; }
     public PropertyInfo? LengthProperty { get; }
 
     public bool Iterable => IsArrayLike || IsDictionary || IsEnumerable;
-
-    public MethodInfo? RemoveMethod => _removeMethod;
 
     public PropertyInfo? KeysAccessor => _keysAccessor;
 
@@ -100,12 +111,15 @@ internal sealed class TypeDescriptor
         out bool isEnumerable,
         out bool isDictionary,
         out MethodInfo? tryGetValueMethod,
-        out MethodInfo? removeMethod,
         out PropertyInfo? keysAccessor,
+        out Type? keyType,
         out Type? valueType,
         out PropertyInfo? lengthProperty,
         out PropertyInfo? integerIndexer,
-        out MethodInfo? toJsonMethod)
+        out MethodInfo? toJsonMethod,
+        out MethodInfo? genericContainsKeyMethod,
+        out MethodInfo? genericIndexerSetMethod,
+        out MethodInfo? genericRemoveMethod)
     {
         AnalyzeType(
             type,
@@ -113,12 +127,15 @@ internal sealed class TypeDescriptor
             out isEnumerable,
             out isDictionary,
             out tryGetValueMethod,
-            out removeMethod,
             out keysAccessor,
+            out keyType,
             out valueType,
             out lengthProperty,
             out integerIndexer,
-            out toJsonMethod);
+            out toJsonMethod,
+            out genericContainsKeyMethod,
+            out genericIndexerSetMethod,
+            out genericRemoveMethod);
 
         foreach (var t in type.GetInterfaces())
         {
@@ -129,12 +146,15 @@ internal sealed class TypeDescriptor
                 out var isEnumerableForSubType,
                 out var isDictionaryForSubType,
                 out var tryGetValueMethodForSubType,
-                out var removeMethodForSubType,
                 out var keysAccessorForSubType,
+                out var keyTypeForSubType,
                 out var valueTypeForSubType,
                 out var lengthPropertyForSubType,
                 out var integerIndexerForSubType,
-                out var toJsonMethodForSubType);
+                out var toJsonMethodForSubType,
+                out var genericContainsKeyMethodForSubType,
+                out var genericIndexerSetMethodForSubType,
+                out var genericRemoveMethodForSubType);
 #pragma warning restore IL2072
 
             isCollection |= isCollectionForSubType;
@@ -142,12 +162,15 @@ internal sealed class TypeDescriptor
             isDictionary |= isDictionaryForSubType;
 
             tryGetValueMethod ??= tryGetValueMethodForSubType;
-            removeMethod ??= removeMethodForSubType;
             keysAccessor ??= keysAccessorForSubType;
+            keyType ??= keyTypeForSubType;
             valueType ??= valueTypeForSubType;
             lengthProperty ??= lengthPropertyForSubType;
             integerIndexer ??= integerIndexerForSubType;
             toJsonMethod ??= toJsonMethodForSubType;
+            genericContainsKeyMethod ??= genericContainsKeyMethodForSubType;
+            genericIndexerSetMethod ??= genericIndexerSetMethodForSubType;
+            genericRemoveMethod ??= genericRemoveMethodForSubType;
         }
     }
 
@@ -158,12 +181,15 @@ internal sealed class TypeDescriptor
         out bool isEnumerable,
         out bool isDictionary,
         out MethodInfo? tryGetValueMethod,
-        out MethodInfo? removeMethod,
         out PropertyInfo? keysAccessor,
+        out Type? keyType,
         out Type? valueType,
         out PropertyInfo? lengthProperty,
         out PropertyInfo? integerIndexer,
-        out MethodInfo? toJsonMethod)
+        out MethodInfo? toJsonMethod,
+        out MethodInfo? genericContainsKeyMethod,
+        out MethodInfo? genericIndexerSetMethod,
+        out MethodInfo? genericRemoveMethod)
     {
         isCollection = typeof(ICollection).IsAssignableFrom(type);
         isEnumerable = typeof(IEnumerable).IsAssignableFrom(type);
@@ -173,9 +199,12 @@ internal sealed class TypeDescriptor
         lengthProperty = type.GetProperty("Count") ?? type.GetProperty("Length");
 
         tryGetValueMethod = null;
-        removeMethod = null;
         keysAccessor = null;
+        keyType = null;
         valueType = null;
+        genericContainsKeyMethod = null;
+        genericIndexerSetMethod = null;
+        genericRemoveMethod = null;
         // Find parameterless toJSON method to match JSON.stringify's expected signature
         // Note: The method name uses camelCase (toJSON) to match the JavaScript specification
         toJsonMethod = type.GetMethod("toJSON", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
@@ -184,18 +213,25 @@ internal sealed class TypeDescriptor
         {
             var genericTypeDefinition = type.GetGenericTypeDefinition();
 
-            // check if object has any generic dictionary signature that accepts string as key
+            // capture metadata for any IDictionary<TKey,TValue> / IReadOnlyDictionary<TKey,TValue>
             var isGenericDictionary = genericTypeDefinition == _genericDictionaryType;
             var isReadOnlyGenericDictionary = genericTypeDefinition == _readOnlyGenericDictionaryType;
-            if ((isGenericDictionary || isReadOnlyGenericDictionary) && type.GenericTypeArguments[0] == _stringType)
+            if (isGenericDictionary || isReadOnlyGenericDictionary)
             {
+                var genericKeyType = type.GenericTypeArguments[0];
                 tryGetValueMethod ??= type.GetMethod("TryGetValue");
                 keysAccessor ??= type.GetProperty("Keys");
+                keyType ??= genericKeyType;
                 valueType ??= type.GenericTypeArguments[1];
+
+                // ContainsKey is declared on both IDictionary<,> and IReadOnlyDictionary<,>
+                genericContainsKeyMethod ??= type.GetMethod("ContainsKey", [genericKeyType]);
 
                 if (isGenericDictionary)
                 {
-                    removeMethod ??= type.GetMethod("Remove");
+                    genericRemoveMethod ??= type.GetMethod("Remove", [genericKeyType]);
+                    var indexerProperty = type.GetProperty("Item", [genericKeyType]);
+                    genericIndexerSetMethod ??= indexerProperty?.GetSetMethod();
                 }
             }
 
@@ -208,18 +244,14 @@ internal sealed class TypeDescriptor
         }
     }
 
-    public bool TryGetValue(object target, string member, [NotNullWhen(true)] out object? o)
+    public bool TryGetDictionaryValue(object target, object key, out object? o)
     {
-        if (!IsStringKeyedGenericDictionary)
-        {
-            Throw.InvalidOperationException("Not a string-keyed dictionary");
-        }
-
-        // we could throw when indexing with an invalid key
+        // IDictionary<,>.TryGetValue / IReadOnlyDictionary<,>.TryGetValue do not throw KeyNotFoundException,
+        // but a custom implementation of either interface might — keep the catch defensively.
         try
         {
-            object?[] parameters = [member, _valueType!.IsValueType ? Activator.CreateInstance(_valueType) : null];
-            var result = (bool) _tryGetValueMethod!.Invoke(target, parameters)!;
+            object?[] parameters = [key, _valueType!.IsValueType ? Activator.CreateInstance(_valueType) : null];
+            var result = _tryGetValueMethod!.Invoke(target, parameters) is true;
             o = parameters[1];
             return result;
         }
@@ -228,5 +260,35 @@ internal sealed class TypeDescriptor
             o = null;
             return false;
         }
+    }
+
+    public bool ContainsDictionaryKey(object target, object key)
+    {
+        return _genericContainsKeyMethod is not null
+            && _genericContainsKeyMethod.Invoke(target, [key]) is true;
+    }
+
+    public bool TrySetDictionaryValue(object target, object key, object? value)
+    {
+        if (_genericIndexerSetMethod is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            _genericIndexerSetMethod.Invoke(target, [key, value]);
+            return true;
+        }
+        catch (TargetInvocationException tie) when (tie.InnerException is ArgumentException or InvalidCastException)
+        {
+            return false;
+        }
+    }
+
+    public bool TryRemoveDictionaryValue(object target, object key)
+    {
+        return _genericRemoveMethod is not null
+            && _genericRemoveMethod.Invoke(target, [key]) is true;
     }
 }

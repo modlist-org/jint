@@ -254,6 +254,27 @@ public class ObjectWrapper : ObjectInstance, IObjectWrapper, IEquatable<ObjectWr
 
             return false;
         }
+        else if (ReferenceEquals(receiver, this) && _typeDescriptor.IsNonStringKeyedGenericDictionary)
+        {
+            // non-string-keyed CLR generic dictionary (e.g. Dictionary<TestModel, string>).
+            // Matches the receiver gate in Get: when [[Set]] arrives via Proxy/Reflect.set with a
+            // different receiver, fall through to the spec-compliant slow path instead of mutating
+            // the underlying dict directly.
+            if (!_engine.Options.Interop.AllowWrite || !Extensible)
+            {
+                return false;
+            }
+
+            var keyType = _typeDescriptor.GenericDictionaryKeyType!;
+            var valueType = _typeDescriptor.GenericDictionaryValueType!;
+            if (!TryConvertJsValueToDictionaryKey(property, keyType, out var clrKey)
+                || !TryConvertJsValueToDictionaryValue(value, valueType, out var clrValue))
+            {
+                return false;
+            }
+
+            return _typeDescriptor.TrySetDictionaryValue(Target, clrKey!, clrValue);
+        }
 
         return SetSlow(property, value);
     }
@@ -291,13 +312,87 @@ public class ObjectWrapper : ObjectInstance, IObjectWrapper, IEquatable<ObjectWr
 
     public override void RemoveOwnProperty(JsValue property)
     {
-        if (_engine.Options.Interop.AllowWrite && property is JsString jsString && _typeDescriptor.RemoveMethod is not null)
+        if (_engine.Options.Interop.AllowWrite)
         {
-            _typeDescriptor.RemoveMethod.Invoke(Target, [jsString.ToString()]);
+            if (property is JsString jsString && _typeDescriptor.IsStringKeyedGenericDictionary)
+            {
+                _typeDescriptor.TryRemoveDictionaryValue(Target, jsString.ToString());
+            }
+            else if (!property.IsString()
+                && !property.IsSymbol()
+                && _typeDescriptor.IsNonStringKeyedGenericDictionary
+                && TryConvertJsValueToDictionaryKey(property, _typeDescriptor.GenericDictionaryKeyType!, out var clrKey))
+            {
+                _typeDescriptor.TryRemoveDictionaryValue(Target, clrKey!);
+            }
         }
 
         // also remove from _properties cache to avoid stale entries
         base.RemoveOwnProperty(property);
+    }
+
+    public override bool HasProperty(JsValue property)
+    {
+        if (!property.IsString()
+            && !property.IsSymbol()
+            && _typeDescriptor.IsNonStringKeyedGenericDictionary
+            && TryConvertJsValueToDictionaryKey(property, _typeDescriptor.GenericDictionaryKeyType!, out var clrKey))
+        {
+            // Prototype chain is intentionally skipped: non-string non-symbol keys can't resolve
+            // to Object.prototype members (which are all string/symbol-keyed). Same rationale as Get.
+            return _typeDescriptor.ContainsDictionaryKey(Target, clrKey!);
+        }
+
+        return base.HasProperty(property);
+    }
+
+    private bool TryConvertJsValueToDictionaryKey(JsValue property, Type keyType, out object? key)
+    {
+        var raw = property.ToObject();
+        if (raw is null)
+        {
+            // standard Dictionary<,> throws ArgumentNullException on null keys; bail before invoking
+            key = null;
+            return false;
+        }
+
+        if (keyType.IsInstanceOfType(raw))
+        {
+            key = raw;
+            return true;
+        }
+        return _engine.TypeConverter.TryConvert(raw, keyType, CultureInfo.InvariantCulture, out key);
+    }
+
+    private bool TryConvertJsValueToDictionaryValue(JsValue value, Type valueType, out object? converted)
+    {
+        // Pass the JsValue through only for an exact JsValue target. A broader IsAssignableFrom check
+        // would also match Dictionary<_, object>, where callers expect the unwrapped CLR value.
+        if (valueType == typeof(JsValue))
+        {
+            converted = value;
+            return true;
+        }
+
+        var raw = value.ToObject();
+        if (raw is null)
+        {
+            if (!valueType.IsValueType || Nullable.GetUnderlyingType(valueType) is not null)
+            {
+                converted = null;
+                return true;
+            }
+            converted = null;
+            return false;
+        }
+
+        if (valueType.IsInstanceOfType(raw))
+        {
+            converted = raw;
+            return true;
+        }
+
+        return _engine.TypeConverter.TryConvert(raw, valueType, CultureInfo.InvariantCulture, out converted);
     }
 
     public override JsValue Get(JsValue property, JsValue receiver)
@@ -316,7 +411,7 @@ public class ObjectWrapper : ObjectInstance, IObjectWrapper, IEquatable<ObjectWr
             else
             {
                 if (_typeDescriptor.IsStringKeyedGenericDictionary
-                    && _typeDescriptor.TryGetValue(Target, property.ToString(), out var value))
+                    && _typeDescriptor.TryGetDictionaryValue(Target, property.ToString(), out var value))
                 {
                     // Check stored properties first - frozen/sealed objects have descriptors in _properties
                     // that must be respected to return the same (frozen) instance
@@ -329,15 +424,38 @@ public class ObjectWrapper : ObjectInstance, IObjectWrapper, IEquatable<ObjectWr
                 }
             }
         }
+        else if (ReferenceEquals(receiver, this)
+            && _typeDescriptor.IsNonStringKeyedGenericDictionary
+            && !property.IsSymbol()
+            && !property.IsString()
+            && TryConvertJsValueToDictionaryKey(property, _typeDescriptor.GenericDictionaryKeyType!, out var clrKey))
+        {
+            // Prototype chain is intentionally skipped on miss: non-string non-symbol keys can't
+            // resolve to Object.prototype members (which are all string/symbol-keyed).
+            return _typeDescriptor.TryGetDictionaryValue(Target, clrKey!, out var raw)
+                ? FromObject(_engine, raw)
+                : Undefined;
+        }
 
         // slow path requires us to create a property descriptor that might get cached or not
-        var desc = GetOwnProperty(property, mustBeReadable: true, mustBeWritable: false);
+        // suppress ThrowOnUnresolvedMember here so we can fall back to the prototype chain
+        // (e.g. valueOf/toString from Object.prototype during implicit coercion)
+        var desc = GetOwnProperty(property, mustBeReadable: true, mustBeWritable: false, throwOnError: false);
         if (desc != PropertyDescriptor.Undefined)
         {
             return UnwrapJsValue(desc, receiver);
         }
 
-        return Prototype?.Get(property, receiver) ?? Undefined;
+        var protoResult = Prototype?.Get(property, receiver) ?? Undefined;
+        if (protoResult.IsUndefined()
+            && property is JsString
+            && !_typeDescriptor.IsDictionary
+            && _engine.Options.Interop.ThrowOnUnresolvedMember)
+        {
+            throw new MissingMemberException($"Cannot access property '{property}' on type '{ClrType.FullName}");
+        }
+
+        return protoResult;
     }
 
     public override List<JsValue> GetOwnPropertyKeys(Types types = Types.Empty | Types.String | Types.Symbol)
@@ -435,7 +553,7 @@ public class ObjectWrapper : ObjectInstance, IObjectWrapper, IEquatable<ObjectWr
         return GetOwnProperty(property, mustBeReadable: false, mustBeWritable: false);
     }
 
-    private PropertyDescriptor GetOwnProperty(JsValue property, bool mustBeReadable, bool mustBeWritable)
+    private PropertyDescriptor GetOwnProperty(JsValue property, bool mustBeReadable, bool mustBeWritable, bool throwOnError = true)
     {
         if (TryGetProperty(property, out var x))
         {
@@ -463,6 +581,22 @@ public class ObjectWrapper : ObjectInstance, IObjectWrapper, IEquatable<ObjectWr
             return PropertyDescriptor.Undefined;
         }
 
+        if (!property.IsString() && _typeDescriptor.IsNonStringKeyedGenericDictionary)
+        {
+            // non-string-keyed CLR generic dictionary — resolve via underlying CLR key, not string
+            if (TryConvertJsValueToDictionaryKey(property, _typeDescriptor.GenericDictionaryKeyType!, out var clrKey)
+                && _typeDescriptor.TryGetDictionaryValue(Target, clrKey!, out var raw))
+            {
+                var flags = PropertyFlag.Enumerable;
+                if (_engine.Options.Interop.AllowWrite)
+                {
+                    flags |= PropertyFlag.Configurable;
+                }
+                return new PropertyDescriptor(FromObject(_engine, raw), flags);
+            }
+            return PropertyDescriptor.Undefined;
+        }
+
         var member = property.ToString();
 
         // if type is dictionary, we cannot enumerate anything other than keys
@@ -471,7 +605,7 @@ public class ObjectWrapper : ObjectInstance, IObjectWrapper, IEquatable<ObjectWr
         var isDictionary = _typeDescriptor.IsStringKeyedGenericDictionary;
         if (isDictionary)
         {
-            if (_typeDescriptor.TryGetValue(Target, member, out var value))
+            if (_typeDescriptor.TryGetDictionaryValue(Target, member, out var value))
             {
                 var flags = PropertyFlag.Enumerable;
                 if (_engine.Options.Interop.AllowWrite)
@@ -482,13 +616,25 @@ public class ObjectWrapper : ObjectInstance, IObjectWrapper, IEquatable<ObjectWr
             }
         }
 
+        if (!isDictionary
+            && _engine.Options.Interop.PreferJsPrototypeMethods
+            && _prototype is not null
+            && !ReferenceEquals(_prototype, _engine.Realm.Intrinsics.Object.PrototypeObject)
+            && _prototype.Get(property, this) is { } protoValue
+            && protoValue.IsCallable)
+        {
+            // Let outer Get fall through to the attached prototype (Array.prototype, etc.)
+            // rather than dispatching to a same-named CLR method whose semantics may differ.
+            return PropertyDescriptor.Undefined;
+        }
+
         var result = Engine.Options.Interop.MemberAccessor(Engine, Target, member);
         if (result is not null)
         {
             return new PropertyDescriptor(result, PropertyFlag.OnlyEnumerable);
         }
 
-        var accessor = _engine.Options.Interop.TypeResolver.GetAccessor(_engine, ClrType, member, mustBeReadable, mustBeWritable);
+        var accessor = _engine.Options.Interop.TypeResolver.GetAccessor(_engine, ClrType, member, mustBeReadable, mustBeWritable, throwOnError);
         var actualType = Target.GetType();
         if (ClrType != actualType)
         {
@@ -498,11 +644,11 @@ public class ObjectWrapper : ObjectInstance, IObjectWrapper, IEquatable<ObjectWr
             //   that should take precedence over the indexer
             if (accessor == ConstantValueAccessor.NullAccessor)
             {
-                accessor = _engine.Options.Interop.TypeResolver.GetAccessor(_engine, actualType, member, mustBeReadable, mustBeWritable);
+                accessor = _engine.Options.Interop.TypeResolver.GetAccessor(_engine, actualType, member, mustBeReadable, mustBeWritable, throwOnError);
             }
             else if (accessor is IndexerAccessor)
             {
-                var runtimeAccessor = _engine.Options.Interop.TypeResolver.GetAccessor(_engine, actualType, member, mustBeReadable, mustBeWritable);
+                var runtimeAccessor = _engine.Options.Interop.TypeResolver.GetAccessor(_engine, actualType, member, mustBeReadable, mustBeWritable, throwOnError);
                 if (runtimeAccessor is not IndexerAccessor && runtimeAccessor != ConstantValueAccessor.NullAccessor)
                 {
                     // Prefer direct property/field/method from runtime type over indexer from declared type
@@ -538,7 +684,7 @@ public class ObjectWrapper : ObjectInstance, IObjectWrapper, IEquatable<ObjectWr
             };
         }
 
-        var accessor = engine.Options.Interop.TypeResolver.GetAccessor(engine, target.GetType(), member.Name, mustBeReadable: false, mustBeWritable: false, Factory);
+        var accessor = engine.Options.Interop.TypeResolver.GetAccessor(engine, target.GetType(), member.Name, mustBeReadable: false, mustBeWritable: false, accessorFactory: Factory);
         return accessor.CreatePropertyDescriptor(engine, target, member.Name);
     }
 

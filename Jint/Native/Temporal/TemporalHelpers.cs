@@ -1647,10 +1647,52 @@ internal static class TemporalHelpers
 
         if (explicitMonth.HasValue && explicitMonth.Value != parsed)
         {
-            Throw.RangeError(realm, "month and monthCode must match");
+            Throw.RangeError(realm, "Mismatching month/monthCode");
         }
 
         return parsed;
+    }
+
+    /// <summary>
+    /// Validates that a user-supplied <paramref name="month"/> and <paramref name="monthCode"/> are
+    /// consistent for the given calendar, then returns the canonical ordinal month for downstream use.
+    /// For ISO/Gregorian calendars: monthCode and month must parse to the same value.
+    /// For non-ISO calendars: ordinal month must equal the resolved-from-monthCode ordinal in the
+    /// given year (which is leap-month-dependent).
+    /// Throws <c>RangeError</c> on mismatch — this validation is overflow-independent per
+    /// CalendarResolveFields. Callers MUST have already enforced required-field (TypeError) checks.
+    ///
+    /// Convention: <paramref name="month"/> uses 0 as the sentinel for "not user-supplied" so
+    /// the helper can distinguish between an explicit ordinal of 1 and a missing field. When
+    /// <paramref name="monthCode"/> is non-null, callers MUST pass the parsed ordinal from
+    /// <see cref="ParseMonthCode"/> in <paramref name="monthFromCode"/> (the helper does not re-parse).
+    /// </summary>
+    /// <returns>The ordinal month to use downstream: monthCode-derived for ISO/gregory when
+    /// monthCode was supplied, else <paramref name="month"/> unchanged (non-ISO uses
+    /// <paramref name="monthCode"/> at conversion time).</returns>
+    internal static int ValidateMonthAndMonthCode(Realm realm, string calendar, int year, int month, string? monthCode, int monthFromCode)
+    {
+        if (monthCode is null)
+        {
+            return month;
+        }
+
+        if (NonIsoCalendars.IsNonIsoCalendar(calendar))
+        {
+            if (month != 0 && !NonIsoCalendars.MonthAndMonthCodeAgree(calendar, year, month, monthCode))
+            {
+                Throw.RangeError(realm, "Mismatching month/monthCode");
+            }
+
+            return month;
+        }
+
+        if (month != 0 && month != monthFromCode)
+        {
+            Throw.RangeError(realm, "Mismatching month/monthCode");
+        }
+
+        return monthFromCode;
     }
 
     /// <summary>
@@ -1963,7 +2005,7 @@ internal static class TemporalHelpers
     /// Returns the calendar-specific year for any calendar, including non-ISO calendars.
     /// For non-ISO calendars, converts the ISO date to a calendar date first.
     /// </summary>
-    internal static int CalendarYear(string calendar, in IsoDate isoDate)
+    internal static int CalendarYear(string calendar, in IsoDate isoDate, Engine? engine = null)
     {
         if (IsGregorianBasedCalendar(calendar))
         {
@@ -1972,7 +2014,7 @@ internal static class TemporalHelpers
 
         if (NonIsoCalendars.IsNonIsoCalendar(calendar))
         {
-            return NonIsoCalendars.IsoToCalendarDate(calendar, isoDate).Year;
+            return NonIsoCalendars.IsoToCalendarDate(calendar, isoDate, engine).Year;
         }
 
         return isoDate.Year;
@@ -1981,7 +2023,7 @@ internal static class TemporalHelpers
     /// <summary>
     /// Returns the calendar-specific ordinal month for a date.
     /// </summary>
-    internal static int CalendarMonth(string calendar, in IsoDate isoDate)
+    internal static int CalendarMonth(string calendar, in IsoDate isoDate, Engine? engine = null)
     {
         if (IsGregorianBasedCalendar(calendar))
         {
@@ -1990,7 +2032,7 @@ internal static class TemporalHelpers
 
         if (NonIsoCalendars.IsNonIsoCalendar(calendar))
         {
-            return NonIsoCalendars.IsoToCalendarDate(calendar, isoDate).Month;
+            return NonIsoCalendars.IsoToCalendarDate(calendar, isoDate, engine).Month;
         }
 
         return isoDate.Month;
@@ -1999,7 +2041,7 @@ internal static class TemporalHelpers
     /// <summary>
     /// Returns the calendar-specific monthCode for a date (e.g., "M01", "M05L").
     /// </summary>
-    internal static string CalendarMonthCode(string calendar, in IsoDate isoDate)
+    internal static string CalendarMonthCode(string calendar, in IsoDate isoDate, Engine? engine = null)
     {
         if (IsGregorianBasedCalendar(calendar))
         {
@@ -2008,7 +2050,7 @@ internal static class TemporalHelpers
 
         if (NonIsoCalendars.IsNonIsoCalendar(calendar))
         {
-            return NonIsoCalendars.IsoToCalendarDate(calendar, isoDate).MonthCode;
+            return NonIsoCalendars.IsoToCalendarDate(calendar, isoDate, engine).MonthCode;
         }
 
         return $"M{isoDate.Month:D2}";
@@ -2017,7 +2059,7 @@ internal static class TemporalHelpers
     /// <summary>
     /// Returns the calendar-specific day for a date.
     /// </summary>
-    internal static int CalendarDay(string calendar, in IsoDate isoDate)
+    internal static int CalendarDay(string calendar, in IsoDate isoDate, Engine? engine = null)
     {
         if (IsGregorianBasedCalendar(calendar))
         {
@@ -2026,16 +2068,47 @@ internal static class TemporalHelpers
 
         if (NonIsoCalendars.IsNonIsoCalendar(calendar))
         {
-            return NonIsoCalendars.IsoToCalendarDate(calendar, isoDate).Day;
+            return NonIsoCalendars.IsoToCalendarDate(calendar, isoDate, engine).Day;
         }
 
         return isoDate.Day;
     }
 
     /// <summary>
+    /// Returns the ISO date corresponding to day-1 of the calendar month/year that contains the given ISO date.
+    /// PlainYearMonth stores an ISO anchor; for non-ISO calendars that anchor's ISO day is unrelated to
+    /// calendar day-1, so PYM operations must canonicalize through the calendar before computing differences
+    /// or doing date arithmetic. Spec ref: ISODateToFields + setting [[Day]] to 1 + CalendarDateFromFields.
+    /// </summary>
+    internal static IsoDate IsoDateForCalendarFirstOfMonth(string calendar, in IsoDate isoDate, Engine? engine = null)
+    {
+        if (IsGregorianBasedCalendar(calendar))
+        {
+            // ISO day-of-month maps directly to calendar day-of-month.
+            return new IsoDate(isoDate.Year, isoDate.Month, 1);
+        }
+
+        if (NonIsoCalendars.IsNonIsoCalendar(calendar))
+        {
+            var calDate = NonIsoCalendars.IsoToCalendarDate(calendar, isoDate, engine);
+            var firstOfMonth = NonIsoCalendars.CalendarDateToIso(calendar, calDate.Year, calDate.MonthCode, calDate.Month, 1, "constrain", engine);
+            if (firstOfMonth is not null)
+            {
+                return firstOfMonth.Value;
+            }
+        }
+
+        // Best-effort fallback when calendar conversion can't produce a result (e.g. ISO date
+        // outside the .NET BCL calendar's supported range). For non-ISO calendars at the extremes
+        // this returns ISO day-1 of the same ISO month, which may not be calendar day-1 — but the
+        // alternative (throwing) would surface during property reads that previously succeeded.
+        return new IsoDate(isoDate.Year, isoDate.Month, 1);
+    }
+
+    /// <summary>
     /// Returns the day of the year in the calendar system for the given ISO date.
     /// </summary>
-    internal static int CalendarDayOfYear(string calendar, in IsoDate isoDate)
+    internal static int CalendarDayOfYear(string calendar, in IsoDate isoDate, Engine? engine = null)
     {
         if (IsGregorianBasedCalendar(calendar))
         {
@@ -2044,9 +2117,9 @@ internal static class TemporalHelpers
 
         if (NonIsoCalendars.IsNonIsoCalendar(calendar))
         {
-            var calDate = NonIsoCalendars.IsoToCalendarDate(calendar, isoDate);
+            var calDate = NonIsoCalendars.IsoToCalendarDate(calendar, isoDate, engine);
             // Find the first day of the calendar year
-            var firstDay = NonIsoCalendars.CalendarDateToIso(calendar, calDate.Year, "M01", 0, 1, "constrain");
+            var firstDay = NonIsoCalendars.CalendarDateToIso(calendar, calDate.Year, "M01", 0, 1, "constrain", engine);
             if (firstDay is not null)
             {
                 var epochThis = IsoDateToDays(isoDate.Year, isoDate.Month, isoDate.Day);
@@ -2061,7 +2134,7 @@ internal static class TemporalHelpers
     /// <summary>
     /// Returns the number of days in the calendar month containing the given ISO date.
     /// </summary>
-    internal static int CalendarDaysInMonth(string calendar, in IsoDate isoDate)
+    internal static int CalendarDaysInMonth(string calendar, in IsoDate isoDate, Engine? engine = null)
     {
         if (IsGregorianBasedCalendar(calendar))
         {
@@ -2070,7 +2143,7 @@ internal static class TemporalHelpers
 
         if (NonIsoCalendars.IsNonIsoCalendar(calendar))
         {
-            return NonIsoCalendars.IsoToCalendarDate(calendar, isoDate).DaysInMonth;
+            return NonIsoCalendars.IsoToCalendarDate(calendar, isoDate, engine).DaysInMonth;
         }
 
         return isoDate.DaysInMonth();
@@ -2079,7 +2152,7 @@ internal static class TemporalHelpers
     /// <summary>
     /// Returns the number of days in the calendar year containing the given ISO date.
     /// </summary>
-    internal static int CalendarDaysInYear(string calendar, in IsoDate isoDate)
+    internal static int CalendarDaysInYear(string calendar, in IsoDate isoDate, Engine? engine = null)
     {
         if (IsGregorianBasedCalendar(calendar))
         {
@@ -2088,7 +2161,7 @@ internal static class TemporalHelpers
 
         if (NonIsoCalendars.IsNonIsoCalendar(calendar))
         {
-            return NonIsoCalendars.IsoToCalendarDate(calendar, isoDate).DaysInYear;
+            return NonIsoCalendars.IsoToCalendarDate(calendar, isoDate, engine).DaysInYear;
         }
 
         return isoDate.DaysInYear();
@@ -2097,7 +2170,7 @@ internal static class TemporalHelpers
     /// <summary>
     /// Returns the number of months in the calendar year containing the given ISO date.
     /// </summary>
-    internal static int CalendarMonthsInYear(string calendar, in IsoDate isoDate)
+    internal static int CalendarMonthsInYear(string calendar, in IsoDate isoDate, Engine? engine = null)
     {
         if (IsGregorianBasedCalendar(calendar))
         {
@@ -2106,7 +2179,7 @@ internal static class TemporalHelpers
 
         if (NonIsoCalendars.IsNonIsoCalendar(calendar))
         {
-            return NonIsoCalendars.IsoToCalendarDate(calendar, isoDate).MonthsInYear;
+            return NonIsoCalendars.IsoToCalendarDate(calendar, isoDate, engine).MonthsInYear;
         }
 
         return 12;
@@ -2115,7 +2188,7 @@ internal static class TemporalHelpers
     /// <summary>
     /// Returns whether the calendar year containing the given ISO date is a leap year.
     /// </summary>
-    internal static bool CalendarInLeapYear(string calendar, in IsoDate isoDate)
+    internal static bool CalendarInLeapYear(string calendar, in IsoDate isoDate, Engine? engine = null)
     {
         if (IsGregorianBasedCalendar(calendar))
         {
@@ -2124,7 +2197,7 @@ internal static class TemporalHelpers
 
         if (NonIsoCalendars.IsNonIsoCalendar(calendar))
         {
-            return NonIsoCalendars.IsoToCalendarDate(calendar, isoDate).InLeapYear;
+            return NonIsoCalendars.IsoToCalendarDate(calendar, isoDate, engine).InLeapYear;
         }
 
         return IsoDate.IsLeapYear(isoDate.Year);
@@ -2217,6 +2290,58 @@ internal static class TemporalHelpers
     }
 
     /// <summary>
+    /// Resolves the calendar year from a previously-read eraYear-derived value plus the user's
+    /// "year" property. When BOTH are user-supplied they must agree (RangeError on mismatch,
+    /// per spec PrepareCalendarFields rejecting redundant inconsistent fields).
+    /// </summary>
+    /// <param name="realm">Realm for error reporting.</param>
+    /// <param name="obj">The fields object — "year" is read here for its observable side effect.</param>
+    /// <param name="eraYearDerived">Year previously computed from era/eraYear via <see cref="ReadEraFields"/>, or null.</param>
+    /// <param name="requireYear">When true and neither eraYear nor year is supplied, throws TypeError. When false, returns <paramref name="defaultYear"/>.</param>
+    /// <param name="explicitlyProvided">true when either eraYear or year was user-supplied; false when neither was supplied and <paramref name="defaultYear"/> is returned.</param>
+    /// <param name="defaultYear">Year to return when not supplied and <paramref name="requireYear"/> is false (e.g. PlainMonthDay's reference year 1972).</param>
+    /// <returns>The resolved year value.</returns>
+    internal static int ResolveYearFromEraOrYear(
+        Realm realm,
+        ObjectInstance obj,
+        int? eraYearDerived,
+        bool requireYear,
+        out bool explicitlyProvided,
+        int defaultYear = 0)
+    {
+        if (eraYearDerived.HasValue)
+        {
+            var yearValue = obj.Get("year");
+            if (!yearValue.IsUndefined())
+            {
+                var userYear = ToIntegerWithTruncationAsInt(realm, yearValue);
+                if (userYear != eraYearDerived.Value)
+                {
+                    Throw.RangeError(realm, "Mismatching era/eraYear");
+                }
+            }
+
+            explicitlyProvided = true;
+            return eraYearDerived.Value;
+        }
+
+        var yearProp = obj.Get("year");
+        if (yearProp.IsUndefined())
+        {
+            if (requireYear)
+            {
+                Throw.TypeError(realm, "Missing year/era/eraYear");
+            }
+
+            explicitlyProvided = false;
+            return defaultYear;
+        }
+
+        explicitlyProvided = true;
+        return ToIntegerWithTruncationAsInt(realm, yearProp);
+    }
+
+    /// <summary>
     /// Reads era and eraYear properties from a property bag for era-supporting calendars.
     /// Returns the computed year if era/eraYear are present, or null if they should be ignored.
     /// Throws TypeError if only one of era/eraYear is present.
@@ -2250,7 +2375,7 @@ internal static class TemporalHelpers
         if (hasEra || hasEraYear)
         {
             // Only one of era/eraYear is present - this is an error
-            Throw.TypeError(realm, "Both era and eraYear must be provided together");
+            Throw.TypeError(realm, "Mismatching era/eraYear");
         }
 
         // Neither era nor eraYear present
@@ -4301,7 +4426,7 @@ internal static class TemporalHelpers
             {
                 // Check for timezone annotation (bracket without "=" or with non-calendar key)
                 var bracketStart = str.IndexOf('[');
-                while (bracketStart >= 0 && bracketStart < str.Length)
+                while ((uint) bracketStart < (uint) str.Length)
                 {
                     var bracketEnd = str.IndexOf(']', bracketStart);
                     if (bracketEnd < 0) break;
@@ -4553,12 +4678,12 @@ internal static class TemporalHelpers
         // Required fields: year, day, and (month or monthCode)
         if (!fields.Year.HasValue)
         {
-            Throw.TypeError(realm, "Missing required property: year");
+            Throw.TypeError(realm, "Missing year/era/eraYear");
         }
 
         if (!fields.Day.HasValue)
         {
-            Throw.TypeError(realm, "Missing required property: day");
+            Throw.TypeError(realm, "Missing day");
         }
 
         // Determine month from either month or monthCode
@@ -4571,7 +4696,7 @@ internal static class TemporalHelpers
             var parsedMonthCode = ParseMonthCode(realm, fields.MonthCode!);
             if (!isNonIso && parsedMonthCode != fields.Month.Value)
             {
-                Throw.RangeError(realm, "month and monthCode do not match");
+                Throw.RangeError(realm, "Mismatching month/monthCode");
             }
 
             month = fields.Month.Value;
@@ -4588,7 +4713,7 @@ internal static class TemporalHelpers
         }
         else
         {
-            Throw.TypeError(realm, "Missing required property: month or monthCode");
+            Throw.TypeError(realm, "Missing month/monthCode");
             return null!;
         }
 
@@ -4620,17 +4745,17 @@ internal static class TemporalHelpers
         // Required fields: year, day, month (or monthCode), timeZone
         if (!fields.Year.HasValue)
         {
-            Throw.TypeError(realm, "Missing required property: year");
+            Throw.TypeError(realm, "Missing year/era/eraYear");
         }
 
         if (!fields.Day.HasValue)
         {
-            Throw.TypeError(realm, "Missing required property: day");
+            Throw.TypeError(realm, "Missing day");
         }
 
         if (fields.TimeZone is null)
         {
-            Throw.TypeError(realm, "Missing required property: timeZone");
+            Throw.TypeError(realm, "Missing timeZone");
         }
 
         // Determine month
@@ -4642,7 +4767,7 @@ internal static class TemporalHelpers
             var parsedMonthCode = ParseMonthCode(realm, fields.MonthCode!);
             if (!isNonIso && parsedMonthCode != fields.Month.Value)
             {
-                Throw.RangeError(realm, "month and monthCode do not match");
+                Throw.RangeError(realm, "Mismatching month/monthCode");
             }
 
             month = fields.Month.Value;
@@ -4659,7 +4784,7 @@ internal static class TemporalHelpers
         }
         else
         {
-            Throw.TypeError(realm, "Missing required property: month or monthCode");
+            Throw.TypeError(realm, "Missing month/monthCode");
             return null!;
         }
 

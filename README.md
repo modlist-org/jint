@@ -127,7 +127,7 @@ and many more.
 - ✔ Ensuring that strings are well-formed - `String.prototype.ensureWellFormed` and `String.prototype.isWellFormed`
 - ✔ Grouping synchronous iterables - `Object.groupBy` and `Map.groupBy`
 - ✔ `Promise.withResolvers`
-- ❌ Regular expression flag `/v`
+- ✔ Regular expression flag `/v`
 
 #### ECMAScript 2025
 
@@ -138,8 +138,8 @@ and many more.
 - ✔ JSON modules
 - ✔ `Promise.try`
 - ✔ `RegExp.escape()`
-- ❌ Regular expression pattern modifiers (inline flags)
-- ❌ Duplicate named capture groups
+- ✔ Regular expression pattern modifiers (inline flags)
+- ✔ Duplicate named capture groups
 - ✔ Set methods (`intersection`, `union`, `difference`, `symmetricDifference`, `isSubsetOf`, `isSupersetOf`, `isDisjointFrom`)
 
 #### ECMAScript proposals (no version yet)
@@ -168,7 +168,7 @@ and many more.
 ## Performance
 
 - Because Jint neither generates any .NET bytecode nor uses the DLR it runs relatively small scripts really fast
-- If you repeatedly run the same script, you should cache the `Script` or `Module` instance produced by Esprima and feed it to Jint instead of the content string
+- If you repeatedly run the same script, you should prepare it for execution using `Engine.PrepareScript` or `Engine.PrepareModule`, cache the returned `Prepared<...>` object and feed it to Jint instead of the content string
 - You should prefer running engine in strict mode, it improves performance
 
 You can check out [the engine comparison results](Jint.Benchmark), bear in mind that every use case is different and benchmarks might not reflect your real-world usage.
@@ -312,6 +312,36 @@ var engine = new Engine(cfg => cfg.Culture(FR));
 engine.Execute("new Number(1.23).toString()"); // 1.23
 engine.Execute("new Number(1.23).toLocaleString()"); // 1,23
 ```
+
+### Extending Temporal and Intl with custom providers
+
+Jint ships English-only / ISO-only defaults to keep the binary small. Non-English CLDR
+data and full IANA timezone DST history are reachable via two pluggable providers:
+
+| Extension point | Default | What it covers | Reusable example |
+| --- | --- | --- | --- |
+| `Options.Temporal.TimeZoneProvider` (`ITimeZoneProvider`) | `DefaultTimeZoneProvider` (BCL `TimeZoneInfo` + Windows↔IANA mapping) | UTC offsets, DST transitions, IANA canonicalization | [`NodaTimeZoneProvider.cs`](Jint.Tests.Test262/NodaTimeZoneProvider.cs) — uses NodaTime TZDB for full historical accuracy |
+| `Options.Intl.CldrProvider` (`ICldrProvider`) | `DefaultCldrProvider` (English + .NET `CultureInfo`) | locale names, currencies, units, plural rules, calendar month/era names | [`IcuCldrProvider.cs`](Jint.Tests.Test262/IcuCldrProvider.cs) — uses ICU4N for full CLDR coverage |
+
+The provider files in `Jint.Tests.Test262/` are **MIT-licensed copy-and-modify templates**,
+not a stable API contract. They are also exactly how the test suite reaches its current
+test262 conformance numbers.
+
+To wire them into your project, add the same NuGet packages (`NodaTime`, `ICU4N`), copy
+the provider files in, and register them on `Engine` options:
+
+```c#
+var engine = new Engine(options =>
+{
+    options.Temporal.TimeZoneProvider = new NodaTimeZoneProvider();
+    options.Intl.CldrProvider          = new IcuCldrProvider();
+});
+```
+
+A separate `ICalendarProvider` for non-ISO calendar arithmetic (Islamic UmAlQura, Persian
+astronomical, Chinese/Dangi at extreme dates) is on the roadmap; until then non-ISO
+calendars use `System.Globalization.Calendar` subclasses, which constrains some date
+ranges (see [`Jint/Native/Temporal/NonIsoCalendars.cs`](Jint/Native/Temporal/NonIsoCalendars.cs)).
 
 ## Execution Constraints 
 

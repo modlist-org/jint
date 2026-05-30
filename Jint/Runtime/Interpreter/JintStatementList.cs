@@ -106,6 +106,15 @@ internal sealed class JintStatementList
 
                 if (c.Type != CompletionType.Normal)
                 {
+                    if (!context.IsSuspended())
+                    {
+                        var asyncFunction = context.Engine.ExecutionContext.AsyncFunction;
+                        if (asyncFunction?._body != this)
+                        {
+                            Reset();
+                        }
+                    }
+
                     return c.UpdateEmpty(sl.Value);
                 }
 
@@ -137,6 +146,8 @@ internal sealed class JintStatementList
             }
             else
             {
+                var locationNode = (Node?) context.Engine._lastSyntaxElement ?? temp[i].Statement._statement;
+                ExceptionDataHelper.TryAttachJavaScriptLocation(ex, context.Engine, locationNode.Location);
                 throw;
             }
         }

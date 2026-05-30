@@ -10,7 +10,8 @@ namespace Jint.Native.Temporal;
 /// <summary>
 /// https://tc39.es/proposal-temporal/#sec-temporal.zoneddatetime
 /// </summary>
-internal sealed class ZonedDateTimeConstructor : Constructor
+[JsObject]
+internal sealed partial class ZonedDateTimeConstructor : Constructor
 {
     private static readonly JsString _functionName = new("ZonedDateTime");
 
@@ -28,38 +29,26 @@ internal sealed class ZonedDateTimeConstructor : Constructor
 
     public ZonedDateTimePrototype PrototypeObject { get; }
 
-    protected override void Initialize()
-    {
-        const PropertyFlag PropertyFlags = PropertyFlag.Writable | PropertyFlag.Configurable;
-        const PropertyFlag LengthFlags = PropertyFlag.Configurable;
+    protected override void Initialize() => CreateProperties_Generated();
 
-        var properties = new PropertyDictionary(2, checkExistingKeys: false)
-        {
-            ["from"] = new(new ClrFunction(Engine, "from", From, 1, LengthFlags), PropertyFlags),
-            ["compare"] = new(new ClrFunction(Engine, "compare", Compare, 2, LengthFlags), PropertyFlags),
-        };
-        SetProperties(properties);
-    }
 
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.zoneddatetime.from
     /// </summary>
-    private JsZonedDateTime From(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Length = 1)]
+    private JsZonedDateTime From(JsValue thisObject, JsValue item, JsValue options)
     {
-        var item = arguments.At(0);
-        var options = arguments.At(1);
         return ToTemporalZonedDateTime(item, options);
     }
 
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.zoneddatetime.compare
     /// </summary>
-    private JsNumber Compare(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsNumber Compare(JsValue thisObject, JsValue one, JsValue two)
     {
-        var one = ToTemporalZonedDateTime(arguments.At(0), Undefined);
-        var two = ToTemporalZonedDateTime(arguments.At(1), Undefined);
-
-        var cmp = one.EpochNanoseconds.CompareTo(two.EpochNanoseconds);
+        var cmp = ToTemporalZonedDateTime(one, Undefined).EpochNanoseconds.CompareTo(
+            ToTemporalZonedDateTime(two, Undefined).EpochNanoseconds);
         return JsNumber.Create(cmp < 0 ? -1 : cmp > 0 ? 1 : 0);
     }
 
@@ -200,7 +189,7 @@ internal sealed class ZonedDateTimeConstructor : Constructor
         var dayValue = obj.Get("day");
         if (dayValue.IsUndefined())
         {
-            Throw.TypeError(_realm, "Missing required property: day");
+            Throw.TypeError(_realm, "Missing day");
         }
 
         var day = TemporalHelpers.ToPositiveIntegerWithTruncation(_realm, dayValue);
@@ -267,17 +256,6 @@ internal sealed class ZonedDateTimeConstructor : Constructor
 
             // Validate well-formedness (format) - this happens before year type validation
             monthFromCode = TemporalHelpers.ParseMonthCode(_realm, monthCodeStr);
-
-            // If both month and monthCode are provided, they must match (ISO only)
-            if (!NonIsoCalendars.IsNonIsoCalendar(calendar) && month != 0 && month != monthFromCode)
-            {
-                Throw.RangeError(_realm, "month and monthCode do not match");
-            }
-
-            if (!NonIsoCalendars.IsNonIsoCalendar(calendar))
-            {
-                month = monthFromCode;
-            }
         }
 
         // 9. nanosecond - read and convert immediately
@@ -305,28 +283,13 @@ internal sealed class ZonedDateTimeConstructor : Constructor
         var timeZoneProp = obj.Get("timeZone");
         if (timeZoneProp.IsUndefined())
         {
-            Throw.TypeError(_realm, "Missing required property: timeZone");
+            Throw.TypeError(_realm, "Missing timeZone");
         }
 
         var timeZone = ToTemporalTimeZoneIdentifier(timeZoneProp);
 
-        // 13. year - use eraYear if computed, otherwise read from property
-        int year;
-        if (eraYear.HasValue)
-        {
-            year = eraYear.Value;
-            obj.Get("year");
-        }
-        else
-        {
-            var yearValue = obj.Get("year");
-            if (yearValue.IsUndefined())
-            {
-                Throw.TypeError(_realm, "Missing required property: year");
-            }
-
-            year = TemporalHelpers.ToIntegerWithTruncationAsInt(_realm, yearValue);
-        }
+        // 13. year - use eraYear if computed, otherwise read from property.
+        var year = TemporalHelpers.ResolveYearFromEraOrYear(_realm, obj, eraYear, requireYear: true, out _);
 
         // 14-16. Read options AFTER all fields(but BEFORE algorithmic validation)
         // Alphabetical order: disambiguation, offset, overflow
@@ -351,8 +314,11 @@ internal sealed class ZonedDateTimeConstructor : Constructor
 
         if (month == 0 && monthCodeStr is null)
         {
-            Throw.TypeError(_realm, "month or monthCode is required");
+            Throw.TypeError(_realm, "Missing month/monthCode");
         }
+
+        // Range validation: month/monthCode mismatch — must come AFTER required-field checks.
+        month = TemporalHelpers.ValidateMonthAndMonthCode(_realm, calendar, year, month, monthCodeStr, monthFromCode);
 
         // Regulate date (with calendar conversion for non-ISO calendars)
         var date = TemporalHelpers.CalendarDateToISO(_realm, calendar, year, month, day, overflow, monthCodeStr);
@@ -691,7 +657,7 @@ internal sealed class ZonedDateTimeConstructor : Constructor
             int lastBracketEnd = -1;
 
             bracketIndex = input.IndexOf('[');
-            while (bracketIndex >= 0 && bracketIndex < input.Length)
+            while ((uint) bracketIndex < (uint) input.Length)
             {
                 var bracketEnd = input.IndexOf(']', bracketIndex);
                 if (bracketEnd < 0) break;

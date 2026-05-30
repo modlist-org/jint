@@ -17,14 +17,18 @@ namespace Jint.Native.Array;
 /// <summary>
 /// https://tc39.es/ecma262/#sec-properties-of-the-array-prototype-object
 /// </summary>
-public sealed class ArrayPrototype : ArrayInstance
+[JsObject]
+public sealed partial class ArrayPrototype : ArrayInstance
 {
     private const int ConstraintCheckInterval = 10_000;
 
     private readonly Realm _realm;
+
+    [JsProperty(Name = "constructor", Flags = PropertyFlag.NonEnumerable)]
     private readonly ArrayConstructor _constructor;
+
     private readonly ObjectTraverseStack _joinStack;
-    internal ClrFunction? _originalIteratorFunction;
+    internal JsValue? _originalIteratorFunction;
 
     internal ArrayPrototype(
         Engine engine,
@@ -42,52 +46,13 @@ public sealed class ArrayPrototype : ArrayInstance
     protected override void Initialize()
     {
         const PropertyFlag PropertyFlags = PropertyFlag.Writable | PropertyFlag.Configurable;
-        var properties = new PropertyDictionary(38, checkExistingKeys: false)
-        {
-            ["constructor"] = new PropertyDescriptor(_constructor, PropertyFlag.NonEnumerable),
+        CreateProperties_Generated();
 
-            ["at"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "at", prototype.At, 1, PropertyFlag.Configurable), PropertyFlags),
-            ["concat"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "concat", prototype.Concat, 1, PropertyFlag.Configurable), PropertyFlags),
-            ["copyWithin"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "copyWithin", prototype.CopyWithin, 2, PropertyFlag.Configurable), PropertyFlags),
-            ["entries"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "entries", prototype.Entries, 0, PropertyFlag.Configurable), PropertyFlags),
-            ["every"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "every", prototype.Every, 1, PropertyFlag.Configurable), PropertyFlags),
-            ["fill"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "fill", prototype.Fill, 1, PropertyFlag.Configurable), PropertyFlags),
-            ["filter"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "filter", prototype.Filter, 1, PropertyFlag.Configurable), PropertyFlags),
-            ["find"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "find", prototype.Find, 1, PropertyFlag.Configurable), PropertyFlags),
-            ["findIndex"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "findIndex", prototype.FindIndex, 1, PropertyFlag.Configurable), PropertyFlags),
-            ["findLast"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "findLast", prototype.FindLast, 1, PropertyFlag.Configurable), PropertyFlags),
-            ["findLastIndex"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "findLastIndex", prototype.FindLastIndex, 1, PropertyFlag.Configurable), PropertyFlags),
-            ["flat"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "flat", prototype.Flat, 0, PropertyFlag.Configurable), PropertyFlags),
-            ["flatMap"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "flatMap", prototype.FlatMap, 1, PropertyFlag.Configurable), PropertyFlags),
-            ["forEach"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "forEach", prototype.ForEach, 1, PropertyFlag.Configurable), PropertyFlags),
-            ["includes"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "includes", prototype.Includes, 1, PropertyFlag.Configurable), PropertyFlags),
-            ["indexOf"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "indexOf", prototype.IndexOf, 1, PropertyFlag.Configurable), PropertyFlags),
-            ["join"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "join", prototype.Join, 1, PropertyFlag.Configurable), PropertyFlags),
-            ["keys"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "keys", prototype.Keys, 0, PropertyFlag.Configurable), PropertyFlags),
-            ["lastIndexOf"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "lastIndexOf", prototype.LastIndexOf, 1, PropertyFlag.Configurable), PropertyFlags),
-            ["map"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "map", prototype.Map, 1, PropertyFlag.Configurable), PropertyFlags),
-            ["pop"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "pop", prototype.Pop, 0, PropertyFlag.Configurable), PropertyFlags),
-            ["push"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "push", prototype.Push, 1, PropertyFlag.Configurable), PropertyFlags),
-            ["reduce"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "reduce", prototype.Reduce, 1, PropertyFlag.Configurable), PropertyFlags),
-            ["reduceRight"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "reduceRight", prototype.ReduceRight, 1, PropertyFlag.Configurable), PropertyFlags),
-            ["reverse"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "reverse", prototype.Reverse, 0, PropertyFlag.Configurable), PropertyFlags),
-            ["shift"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "shift", prototype.Shift, 0, PropertyFlag.Configurable), PropertyFlags),
-            ["slice"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "slice", prototype.Slice, 2, PropertyFlag.Configurable), PropertyFlags),
-            ["some"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "some", prototype.Some, 1, PropertyFlag.Configurable), PropertyFlags),
-            ["sort"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "sort", prototype.Sort, 1, PropertyFlag.Configurable), PropertyFlags),
-            ["splice"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "splice", prototype.Splice, 2, PropertyFlag.Configurable), PropertyFlags),
-            ["toLocaleString"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "toLocaleString", prototype.ToLocaleString, 0, PropertyFlag.Configurable), PropertyFlags),
-            ["toReversed"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "toReversed", prototype.ToReversed, 0, PropertyFlag.Configurable), PropertyFlags),
-            ["toSorted"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "toSorted", prototype.ToSorted, 1, PropertyFlag.Configurable), PropertyFlags),
-            ["toSpliced"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "toSpliced", prototype.ToSpliced, 2, PropertyFlag.Configurable), PropertyFlags),
-            ["toString"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "toString", prototype.ToString, 0, PropertyFlag.Configurable), PropertyFlags),
-            ["unshift"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "unshift", prototype.Unshift, 1, PropertyFlag.Configurable), PropertyFlags),
-            ["values"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "values", prototype.Values, 0, PropertyFlag.Configurable), PropertyFlags),
-            ["with"] = new LazyPropertyDescriptor<ArrayPrototype>(this, static prototype => new ClrFunction(prototype._engine, "with", prototype.With, 2, PropertyFlag.Configurable), PropertyFlags),
-        };
-        SetProperties(properties);
-
-        _originalIteratorFunction = new ClrFunction(_engine, "iterator", Values, 1);
+        // Per spec, Array.prototype[@@iterator] is the SAME function object as Array.prototype.values
+        // (ECMA-262 23.1.3.34). Materialize the generated `values` descriptor and reuse it both as the
+        // Symbol.iterator value and as _originalIteratorFunction for ArrayInstance.HasOriginalIterator
+        // fast-path detection (ArrayInstance.cs:73).
+        _originalIteratorFunction = GetOwnProperty("values").Value;
         var symbols = new SymbolDictionary(2)
         {
             [GlobalSymbolRegistry.Iterator] = new PropertyDescriptor(_originalIteratorFunction, PropertyFlags),
@@ -121,7 +86,8 @@ public sealed class ArrayPrototype : ArrayInstance
         SetSymbols(symbols);
     }
 
-    private ObjectInstance Keys(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private ObjectInstance Keys(JsValue thisObject)
     {
         if (thisObject is ObjectInstance oi && oi.IsArrayLike)
         {
@@ -132,7 +98,8 @@ public sealed class ArrayPrototype : ArrayInstance
         return null;
     }
 
-    internal ObjectInstance Values(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    internal ObjectInstance Values(JsValue thisObject)
     {
         if (thisObject is ObjectInstance oi && oi.IsArrayLike)
         {
@@ -143,6 +110,7 @@ public sealed class ArrayPrototype : ArrayInstance
         return null;
     }
 
+    [JsFunction(Length = 2)]
     private ObjectInstance With(JsValue thisObject, JsCallArguments arguments)
     {
         var o = ArrayOperations.For(TypeConverter.ToObject(_realm, thisObject), forWrite: false);
@@ -181,7 +149,8 @@ public sealed class ArrayPrototype : ArrayInstance
         return new JsArray(_engine, a);
     }
 
-    private ObjectInstance Entries(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private ObjectInstance Entries(JsValue thisObject)
     {
         if (thisObject is ObjectInstance oi && oi.IsArrayLike)
         {
@@ -195,6 +164,7 @@ public sealed class ArrayPrototype : ArrayInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-array.prototype.fill
     /// </summary>
+    [JsFunction(Length = 1)]
     private JsValue Fill(JsValue thisObject, JsCallArguments arguments)
     {
         var value = arguments.At(0);
@@ -254,6 +224,7 @@ public sealed class ArrayPrototype : ArrayInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-array.prototype.copywithin
     /// </summary>
+    [JsFunction(Length = 2)]
     private JsValue CopyWithin(JsValue thisObject, JsCallArguments arguments)
     {
         var o = TypeConverter.ToObject(_realm, thisObject);
@@ -344,6 +315,7 @@ public sealed class ArrayPrototype : ArrayInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-array.prototype.lastindexof
     /// </summary>
+    [JsFunction(Length = 1)]
     private JsValue LastIndexOf(JsValue thisObject, JsCallArguments arguments)
     {
         var o = ArrayOperations.For(_realm, thisObject, forWrite: false);
@@ -397,6 +369,7 @@ public sealed class ArrayPrototype : ArrayInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-array.prototype.reduce
     /// </summary>
+    [JsFunction(Length = 1)]
     private JsValue Reduce(JsValue thisObject, JsCallArguments arguments)
     {
         var callbackfn = arguments.At(0);
@@ -459,6 +432,7 @@ public sealed class ArrayPrototype : ArrayInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-array.prototype.filter
     /// </summary>
+    [JsFunction(Length = 1)]
     private JsValue Filter(JsValue thisObject, JsCallArguments arguments)
     {
         var callbackfn = arguments.At(0);
@@ -499,6 +473,7 @@ public sealed class ArrayPrototype : ArrayInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-array.prototype.map
     /// </summary>
+    [JsFunction(Length = 1)]
     private JsValue Map(JsValue thisObject, JsCallArguments arguments)
     {
         if (thisObject is JsArray { CanUseFastAccess: true } arrayInstance
@@ -539,6 +514,7 @@ public sealed class ArrayPrototype : ArrayInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-array.prototype.flat
     /// </summary>
+    [JsFunction]
     private JsValue Flat(JsValue thisObject, JsCallArguments arguments)
     {
         var operations = ArrayOperations.For(_realm, thisObject, forWrite: false);
@@ -563,6 +539,7 @@ public sealed class ArrayPrototype : ArrayInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-array.prototype.flatmap
     /// </summary>
+    [JsFunction(Length = 1)]
     private JsValue FlatMap(JsValue thisObject, JsCallArguments arguments)
     {
         var O = ArrayOperations.For(_realm, thisObject, forWrite: false);
@@ -655,6 +632,7 @@ public sealed class ArrayPrototype : ArrayInstance
         return targetIndex;
     }
 
+    [JsFunction(Length = 1)]
     private JsValue ForEach(JsValue thisObject, JsCallArguments arguments)
     {
         var callbackfn = arguments.At(0);
@@ -684,6 +662,7 @@ public sealed class ArrayPrototype : ArrayInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-array.prototype.includes
     /// </summary>
+    [JsFunction(Length = 1)]
     private JsValue Includes(JsValue thisObject, JsCallArguments arguments)
     {
         var o = ArrayOperations.For(_realm, thisObject, forWrite: false);
@@ -720,6 +699,28 @@ public sealed class ArrayPrototype : ArrayInstance
             }
         }
 
+        // Fast path: dense JsArray scan avoids the per-element virtual call through ArrayOperations.Get.
+        if (thisObject is JsArray { CanUseFastAccess: true } fast && fast._dense is { } dense)
+        {
+            var actualLen = (int) System.Math.Min((uint) dense.Length, (uint) len);
+            for (var i = (int) k; i < actualLen; i++)
+            {
+                var v = dense[i];
+                // Holes count as undefined for Includes.
+                v ??= Undefined;
+                if (SameValueZeroComparer.Equals(v, searchElement))
+                {
+                    return JsBoolean.True;
+                }
+            }
+            // Trailing positions beyond _dense are holes => undefined.
+            if (actualLen < len && SameValueZeroComparer.Equals(Undefined, searchElement))
+            {
+                return JsBoolean.True;
+            }
+            return JsBoolean.False;
+        }
+
         while (k < len)
         {
             var value = o.Get((ulong) k);
@@ -732,6 +733,7 @@ public sealed class ArrayPrototype : ArrayInstance
         return false;
     }
 
+    [JsFunction(Length = 1)]
     private JsValue Some(JsValue thisObject, JsCallArguments arguments)
     {
         var target = TypeConverter.ToObject(_realm, thisObject);
@@ -741,6 +743,7 @@ public sealed class ArrayPrototype : ArrayInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-array.prototype.every
     /// </summary>
+    [JsFunction(Length = 1)]
     private JsValue Every(JsValue thisObject, JsCallArguments arguments)
     {
         var o = ArrayOperations.For(_realm, thisObject, forWrite: false);
@@ -778,6 +781,7 @@ public sealed class ArrayPrototype : ArrayInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-array.prototype.indexof
     /// </summary>
+    [JsFunction(Length = 1)]
     private JsValue IndexOf(JsValue thisObject, JsCallArguments arguments)
     {
         var o = ArrayOperations.For(_realm, thisObject, forWrite: false);
@@ -825,6 +829,22 @@ public sealed class ArrayPrototype : ArrayInstance
         }
 
         var searchElement = arguments.At(0);
+
+        // Fast path: dense JsArray scan avoids the per-element HasProperty + Get virtual call pair.
+        if (thisObject is JsArray { CanUseFastAccess: true } fast && fast._dense is { } dense)
+        {
+            var actualLen = (int) System.Math.Min((uint) dense.Length, (uint) len);
+            for (var i = (int) k; i < actualLen; i++)
+            {
+                var v = dense[i];
+                if (v is not null && v.Equals(searchElement))
+                {
+                    return JsNumber.Create((uint) i);
+                }
+            }
+            return JsNumber.IntegerNegativeOne;
+        }
+
         for (; k < len; k++)
         {
             var kPresent = o.HasProperty(k);
@@ -844,6 +864,7 @@ public sealed class ArrayPrototype : ArrayInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-array.prototype.find
     /// </summary>
+    [JsFunction(Length = 1)]
     private JsValue Find(JsValue thisObject, JsCallArguments arguments)
     {
         var target = TypeConverter.ToObject(_realm, thisObject);
@@ -854,6 +875,7 @@ public sealed class ArrayPrototype : ArrayInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-array.prototype.findindex
     /// </summary>
+    [JsFunction(Length = 1)]
     private JsValue FindIndex(JsValue thisObject, JsCallArguments arguments)
     {
         var target = TypeConverter.ToObject(_realm, thisObject);
@@ -864,6 +886,7 @@ public sealed class ArrayPrototype : ArrayInstance
         return -1;
     }
 
+    [JsFunction(Length = 1)]
     private JsValue FindLast(JsValue thisObject, JsCallArguments arguments)
     {
         var target = TypeConverter.ToObject(_realm, thisObject);
@@ -871,6 +894,7 @@ public sealed class ArrayPrototype : ArrayInstance
         return value;
     }
 
+    [JsFunction(Length = 1)]
     private JsValue FindLastIndex(JsValue thisObject, JsCallArguments arguments)
     {
         var target = TypeConverter.ToObject(_realm, thisObject);
@@ -884,6 +908,7 @@ public sealed class ArrayPrototype : ArrayInstance
     /// <summary>
     /// https://tc39.es/proposal-relative-indexing-method/#sec-array-prototype-additions
     /// </summary>
+    [JsFunction(Length = 1)]
     private JsValue At(JsValue thisObject, JsCallArguments arguments)
     {
         var target = TypeConverter.ToObject(_realm, thisObject);
@@ -911,6 +936,7 @@ public sealed class ArrayPrototype : ArrayInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-array.prototype.splice
     /// </summary>
+    [JsFunction(Length = 2)]
     private JsValue Splice(JsValue thisObject, JsCallArguments arguments)
     {
         var start = arguments.At(0);
@@ -965,6 +991,64 @@ public sealed class ArrayPrototype : ArrayInstance
 
         var instance = _realm.Intrinsics.Array.ArraySpeciesCreate(obj, actualDeleteCount);
         var a = ArrayOperations.For(instance, forWrite: true);
+
+        // Fast path: dense JsArray with default prototype, fits in uint, and the result array
+        // is also a fresh dense JsArray we can fill via Array.Copy. Replaces three O(n) loops
+        // (capture deleted, shift tail, write inserts) with up to three Array.Copy calls.
+        if (len + (ulong) items.Length <= uint.MaxValue
+            && actualStart <= uint.MaxValue && actualDeleteCount <= uint.MaxValue
+            && o.Target is JsArray jsArr && jsArr._dense is { } srcDense && jsArr.CanUseFastAccess
+            && a.Target is JsArray resultArr && resultArr._dense is not null)
+        {
+            var startU = (uint) actualStart;
+            var deleteU = (uint) actualDeleteCount;
+            var insertU = (uint) items.Length;
+            var lenU = (uint) len;
+            var newLenU = (uint) (len - actualDeleteCount + (ulong) items.Length);
+
+            // 1. Copy deleted slots into the result array.
+            if (deleteU > 0)
+            {
+                resultArr.EnsureCapacity(deleteU);
+                var availableInSource = startU < (uint) srcDense.Length
+                    ? System.Math.Min(deleteU, (uint) srcDense.Length - startU)
+                    : 0u;
+                if (availableInSource > 0)
+                {
+                    System.Array.Copy(srcDense, startU, resultArr._dense!, 0, availableInSource);
+                }
+            }
+            resultArr.SetLength(deleteU);
+
+            // 2. Shift the tail to its new position.
+            var tailStart = startU + deleteU;
+            var tailCount = lenU - tailStart;
+            if (tailCount > 0 && insertU != deleteU)
+            {
+                jsArr.TryMoveDenseRange(sourceIndex: tailStart, destIndex: startU + insertU, count: tailCount);
+            }
+
+            // 3. Clear stale slots when shrinking.
+            if (newLenU < lenU)
+            {
+                jsArr.ClearDenseRange(newLenU, lenU - newLenU);
+            }
+
+            // 4. Write the inserted items. Amortized grow for the case where step 2 didn't
+            // run (insertU == deleteU or tailCount == 0) yet we still need write capacity.
+            if (insertU > 0)
+            {
+                jsArr.EnsureCapacityAmortized(startU + insertU);
+                for (uint k = 0; k < insertU; k++)
+                {
+                    jsArr._dense![startU + k] = items[(int) k];
+                }
+            }
+
+            jsArr.SetLength(newLenU);
+            return resultArr;
+        }
+
         for (uint k = 0; k < actualDeleteCount; k++)
         {
             var index = actualStart + k;
@@ -1031,6 +1115,7 @@ public sealed class ArrayPrototype : ArrayInstance
     /// <summary>
     /// /https://tc39.es/ecma262/#sec-array.prototype.unshift
     /// </summary>
+    [JsFunction(Length = 1)]
     private JsValue Unshift(JsValue thisObject, JsCallArguments arguments)
     {
         var o = ArrayOperations.For(_realm, thisObject, forWrite: true);
@@ -1040,6 +1125,29 @@ public sealed class ArrayPrototype : ArrayInstance
         if (len + argCount > ArrayOperations.MaxArrayLikeLength)
         {
             Throw.TypeError(_realm, "Invalid array length");
+        }
+
+        // Fast path: dense JsArray with default prototype — bulk Array.Copy right by argCount
+        // then write the new front slots, instead of O(n) per-element Set/HasProperty.
+        if (argCount > 0 && len <= uint.MaxValue && o.Target is JsArray jsArr
+            && jsArr._dense is not null && jsArr.CanUseFastAccess
+            && len + argCount <= ArrayInstance.MaxDenseArrayLengthInternal)
+        {
+            var lenU = (uint) len;
+            var newLenU = lenU + argCount;
+            // Amortized grow so back-to-back unshift loops don't incur O(N²) Array.Resize work
+            // (matches the doubling growth that the slow path's per-element Set() relies on).
+            jsArr.EnsureCapacityAmortized(newLenU);
+            if (lenU > 0)
+            {
+                System.Array.Copy(jsArr._dense!, 0, jsArr._dense!, argCount, lenU);
+            }
+            for (uint j = 0; j < argCount; j++)
+            {
+                jsArr._dense![j] = arguments[(int) j];
+            }
+            jsArr.SetLength(newLenU);
+            return newLenU;
         }
 
         // only prepare for larger if we cannot rely on default growth algorithm
@@ -1075,6 +1183,7 @@ public sealed class ArrayPrototype : ArrayInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-array.prototype.sort
     /// </summary>
+    [JsFunction(Length = 1)]
     private JsValue Sort(JsValue thisObject, JsCallArguments arguments)
     {
         var obj = ArrayOperations.For(_realm, thisObject, forWrite: true);
@@ -1086,7 +1195,8 @@ public sealed class ArrayPrototype : ArrayInstance
             return obj.Target;
         }
 
-        var items = new List<JsValue>((int) System.Math.Min(10_000, obj.GetLength()));
+        // capacity capped to a sane upper bound so a 1e9-length sparse array doesn't preallocate everything
+        var items = new List<JsValue>((int) System.Math.Min(1024, len));
         for (ulong k = 0; k < len; ++k)
         {
             if (obj.TryGetValue(k, out var kValue))
@@ -1100,36 +1210,32 @@ public sealed class ArrayPrototype : ArrayInstance
         // don't eat inner exceptions
         try
         {
-            var comparer = ArrayComparer.WithFunction(_engine, compareFn);
-            IEnumerable<JsValue> ordered;
-#if !NETCOREAPP
-            if (comparer is not null)
+            if (compareFn is null)
             {
-                // sort won't be stable on .NET Framework, but at least it cant go into infinite loop when comparer is badly implemented
-                items.Sort(comparer);
-                ordered = items;
+                SortByCachedStringKeys(items);
             }
             else
             {
-                ordered = items.OrderBy(x => x, comparer);
-            }
-#else
-
+                var comparer = ArrayComparer.WithFunction(_engine, compareFn);
+#if NETCOREAPP
+                // OrderBy is stable; List<T>.Sort is not. Stability is required by the spec since ES2019.
 #if NET8_0_OR_GREATER
-            ordered = items.Order(comparer);
+                items = items.Order(comparer).ToList();
 #else
-            ordered = items.OrderBy(x => x, comparer);
+                items = items.OrderBy(x => x, comparer).ToList();
 #endif
-
+#else
+                items.Sort(comparer);
 #endif
-            uint j = 0;
-            foreach (var item in ordered)
-            {
-                obj.Set(j, item, updateLength: false, throwOnError: true);
-                j++;
             }
 
-            for (; j < len; ++j)
+            for (uint j = 0; j < itemCount; j++)
+            {
+                obj.Set(j, items[(int) j], updateLength: false, throwOnError: true);
+            }
+
+            // Holes (TryGetValue returned false) only need clearing when the input had holes.
+            for (uint j = (uint) itemCount; j < len; ++j)
             {
                 obj.DeletePropertyOrThrow(j);
             }
@@ -1143,8 +1249,76 @@ public sealed class ArrayPrototype : ArrayInstance
     }
 
     /// <summary>
+    /// Default ECMA Array.prototype.sort path: SortCompare coerces both operands via ToString
+    /// per comparison, which is O(n log n) ToString allocations. Cache the coerced key once per
+    /// element (Schwartzian transform), then sort indices stably (tiebreak by original index).
+    /// </summary>
+    private static void SortByCachedStringKeys(List<JsValue> items)
+    {
+        var itemCount = items.Count;
+        if (itemCount <= 1)
+        {
+            return;
+        }
+
+        var keys = new string?[itemCount];
+        for (var i = 0; i < itemCount; i++)
+        {
+            var v = items[i];
+            // Spec: undefined elements sort to the end and are not coerced via ToString.
+            keys[i] = v.IsUndefined() ? null : TypeConverter.ToString(v);
+        }
+
+        var indices = new int[itemCount];
+        for (var i = 0; i < itemCount; i++)
+        {
+            indices[i] = i;
+        }
+
+        System.Array.Sort(indices, new CachedStringKeyComparer(keys));
+
+        // Apply permutation via a temp buffer; cycle-permute would avoid the allocation but adds risk.
+        var sorted = new JsValue[itemCount];
+        for (var i = 0; i < itemCount; i++)
+        {
+            sorted[i] = items[indices[i]];
+        }
+        for (var i = 0; i < itemCount; i++)
+        {
+            items[i] = sorted[i];
+        }
+    }
+
+    private sealed class CachedStringKeyComparer : IComparer<int>
+    {
+        private readonly string?[] _keys;
+        public CachedStringKeyComparer(string?[] keys) => _keys = keys;
+        public int Compare(int a, int b)
+        {
+            var ka = _keys[a];
+            var kb = _keys[b];
+            // undefined sorts to the end (spec: SortCompare returns 1 if x is undefined, -1 if y is)
+            if (ka is null)
+            {
+                if (kb is null)
+                {
+                    return a - b; // tiebreak by original index for stability
+                }
+                return 1;
+            }
+            if (kb is null)
+            {
+                return -1;
+            }
+            var c = string.CompareOrdinal(ka, kb);
+            return c != 0 ? c : a - b; // tiebreak by original index for stability
+        }
+    }
+
+    /// <summary>
     /// https://tc39.es/ecma262/#sec-array.prototype.slice
     /// </summary>
+    [JsFunction(Length = 2)]
     private JsValue Slice(JsValue thisObject, JsCallArguments arguments)
     {
         var start = arguments.At(0);
@@ -1208,7 +1382,8 @@ public sealed class ArrayPrototype : ArrayInstance
         return a;
     }
 
-    private JsValue Shift(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsValue Shift(JsValue thisObject)
     {
         var o = ArrayOperations.For(_realm, thisObject, forWrite: true);
         var len = o.GetLength();
@@ -1218,7 +1393,18 @@ public sealed class ArrayPrototype : ArrayInstance
             return Undefined;
         }
 
-        var first = o.Get(0);
+        // Fast path: dense JsArray with default prototype — single Array.Copy left by 1
+        // replaces O(n) per-element Set/HasProperty calls.
+        if (o.Target is JsArray jsArr && jsArr._dense is { } dense && jsArr.CanUseFastAccess)
+        {
+            var first = (len <= (uint) dense.Length ? dense[0] : null) ?? Undefined;
+            jsArr.TryMoveDenseRange(sourceIndex: 1, destIndex: 0, count: len - 1);
+            jsArr.ClearDenseRange(len - 1, 1);
+            jsArr.SetLength((ulong) (len - 1));
+            return first;
+        }
+
+        var firstSlow = o.Get(0);
         for (uint k = 1; k < len; k++)
         {
             var to = k - 1;
@@ -1235,13 +1421,14 @@ public sealed class ArrayPrototype : ArrayInstance
         o.DeletePropertyOrThrow(len - 1);
         o.SetLength(len - 1);
 
-        return first;
+        return firstSlow;
     }
 
     /// <summary>
     /// https://tc39.es/ecma262/#sec-array.prototype.reverse
     /// </summary>
-    private JsValue Reverse(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsValue Reverse(JsValue thisObject)
     {
         var o = ArrayOperations.For(_realm, thisObject, forWrite: true);
         var len = o.GetLongLength();
@@ -1290,6 +1477,7 @@ public sealed class ArrayPrototype : ArrayInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-array.prototype.join
     /// </summary>
+    [JsFunction(Length = 1)]
     private JsValue Join(JsValue thisObject, JsCallArguments arguments)
     {
         var separator = arguments.At(0);
@@ -1341,6 +1529,7 @@ public sealed class ArrayPrototype : ArrayInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-array.prototype.tolocalestring
     /// </summary>
+    [JsFunction]
     private JsValue ToLocaleString(JsValue thisObject, JsCallArguments arguments)
     {
         const string Separator = ",";
@@ -1383,8 +1572,19 @@ public sealed class ArrayPrototype : ArrayInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-array.prototype.concat
     /// </summary>
+    [JsFunction(Length = 1)]
     private JsValue Concat(JsValue thisObject, JsCallArguments arguments)
     {
+        // Fast path: thisObject and every spreadable arg are CanUseFastAccess JsArrays.
+        // Pre-sum total length so the output is allocated once at exact size and each source
+        // can be copied via Array.Copy instead of element-by-element CreateDataPropertyOrThrow.
+        if (thisObject is JsArray { CanUseFastAccess: true } thisArr
+            && !thisArr.HasOwnProperty(CommonProperties.Constructor)
+            && TryConcatAllJsArrayFast(thisArr, arguments, out var fastResult))
+        {
+            return fastResult;
+        }
+
         var o = TypeConverter.ToObject(_realm, thisObject);
         var items = new List<JsValue>(arguments.Length + 1) { o };
         items.AddRange(arguments);
@@ -1434,6 +1634,96 @@ public sealed class ArrayPrototype : ArrayInstance
         return a;
     }
 
+    private bool TryConcatAllJsArrayFast(JsArray thisArr, JsCallArguments arguments, out JsArray result)
+    {
+        result = null!;
+
+        // CanUseFastAccess does not catch a custom @@isConcatSpreadable symbol, so we still
+        // have to consult IsConcatSpreadable for each input.
+        if (!thisArr.IsConcatSpreadable)
+        {
+            return false;
+        }
+
+        // Pre-classify each arg as spreadable-array / scalar / bail-to-slow-path so we don't
+        // call IsConcatSpreadable twice (once during sizing, once during copy).
+        var argInfo = arguments.Length == 0 ? null : new bool[arguments.Length];
+
+        ulong totalLen = thisArr.GetLength();
+        for (var i = 0; i < arguments.Length; i++)
+        {
+            var e = arguments[i];
+            if (e is JsArray { CanUseFastAccess: true } ja && ja.IsConcatSpreadable)
+            {
+                argInfo![i] = true;
+                totalLen += ja.GetLength();
+            }
+            else if (e is ObjectInstance)
+            {
+                // Either a non-fast array, a non-array object, or a custom-symbol object.
+                // Defer to slow path which handles all spreadability cases correctly.
+                return false;
+            }
+            else
+            {
+                totalLen++;
+            }
+
+            if (totalLen > ArrayOperations.MaxArrayLikeLength)
+            {
+                Throw.TypeError(_realm, "Invalid array length");
+            }
+        }
+
+        if (totalLen > int.MaxValue)
+        {
+            return false;
+        }
+
+        var a = _realm.Intrinsics.Array.ArrayCreate(totalLen);
+        var dest = a._dense;
+        if (dest is null)
+        {
+            return false;
+        }
+
+        uint pos = 0;
+
+        var thisLen = thisArr.GetLength();
+        if (thisLen > 0)
+        {
+            var src = thisArr._dense!;
+            var copyLen = (int) System.Math.Min((uint) src.Length, thisLen);
+            System.Array.Copy(src, 0, dest, (int) pos, copyLen);
+            pos = thisLen;
+        }
+
+        for (var i = 0; i < arguments.Length; i++)
+        {
+            var e = arguments[i];
+            if (argInfo is not null && argInfo[i])
+            {
+                var ja = (JsArray) e;
+                var len = ja.GetLength();
+                if (len > 0)
+                {
+                    var src = ja._dense!;
+                    var copyLen = (int) System.Math.Min((uint) src.Length, len);
+                    System.Array.Copy(src, 0, dest, (int) pos, copyLen);
+                    pos += len;
+                }
+            }
+            else
+            {
+                dest[pos++] = e;
+            }
+        }
+
+        result = a;
+        return true;
+    }
+
+    [JsFunction]
     internal JsValue ToString(JsValue thisObject, JsCallArguments arguments)
     {
         var array = TypeConverter.ToObject(_realm, thisObject);
@@ -1445,13 +1735,15 @@ public sealed class ArrayPrototype : ArrayInstance
         }
         else
         {
-            func = _realm.Intrinsics.Object.PrototypeObject.ToObjectString;
+            var prototype = _realm.Intrinsics.Object.PrototypeObject;
+            func = (thisArg, _) => prototype.ToObjectString(thisArg);
         }
 
         return func(array, Arguments.Empty);
     }
 
-    private JsValue ToReversed(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsValue ToReversed(JsValue thisObject)
     {
         var o = ArrayOperations.For(_realm, thisObject, forWrite: false);
 
@@ -1478,6 +1770,7 @@ public sealed class ArrayPrototype : ArrayInstance
         return new JsArray(_engine, a);
     }
 
+    [JsFunction(Length = 1)]
     private JsValue ToSorted(JsValue thisObject, JsCallArguments arguments)
     {
         var o = ArrayOperations.For(_realm, thisObject, forWrite: false);
@@ -1498,6 +1791,7 @@ public sealed class ArrayPrototype : ArrayInstance
         return new JsArray(_engine, array);
     }
 
+    [JsFunction(Length = 2)]
     private JsValue ToSpliced(JsValue thisObject, JsCallArguments arguments)
     {
         var start = arguments.At(0);
@@ -1618,6 +1912,7 @@ public sealed class ArrayPrototype : ArrayInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-array.prototype.reduceright
     /// </summary>
+    [JsFunction(Length = 1)]
     private JsValue ReduceRight(JsValue thisObject, JsCallArguments arguments)
     {
         var callbackfn = arguments.At(0);
@@ -1677,6 +1972,7 @@ public sealed class ArrayPrototype : ArrayInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-array.prototype.push
     /// </summary>
+    [JsFunction(Length = 1)]
     public JsValue Push(JsValue thisObject, JsCallArguments arguments)
     {
         if (thisObject is JsArray { CanUseFastAccess: true } arrayInstance)
@@ -1702,7 +1998,8 @@ public sealed class ArrayPrototype : ArrayInstance
         return n;
     }
 
-    public JsValue Pop(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    public JsValue Pop(JsValue thisObject)
     {
         if (thisObject is JsArray { CanUseFastAccess: true } array)
         {

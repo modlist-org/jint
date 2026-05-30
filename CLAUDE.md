@@ -164,11 +164,38 @@ if (result.PlainRelativeTo != null)
 - **readonly record struct**: Multiple related return values (2+), especially when used across multiple methods
 - **Class/struct**: Complex data with behavior, validation, or many fields (5+)
 
+### Visibility: internal-first
+
+Default new types, members, fields, and parameters to the **narrowest visibility that compiles**. Climb up only when a real consumer requires it.
+
+1. **`private`** → single-class / single-file implementation detail
+2. **`internal`** → shared within the Jint assembly (the default for most new runtime types)
+3. **`protected internal`** → extension points on public abstract classes that derived classes in user code might legitimately need (e.g. `Module._engine`, `_realm`)
+4. **`public`** → only when the type appears in a **public** signature (parameter, return, property) of an already-public API, or when end users must construct/consume it directly
+
+**Rule of thumb:** if a type is only referenced by `internal` members, it must be `internal`. Only promote to `public` when a genuine public surface forces your hand — and if that happens, first consider whether the public surface itself can be split so the implementation-detail type stays internal. Example from this repo: `ModuleImportPhase` is only used by `internal` consumers plus one `public` static method; splitting that method into `public GetModuleNamespace(Module)` + `internal GetModuleNamespace(Module, ModuleImportPhase)` kept the enum internal.
+
+Adding `public` API surface is a durable commitment — once shipped, breaking changes are costly. `internal` costs nothing to widen later.
+
+### Type co-location: same file if same concept
+
+Keep small supporting types (enums, record structs, private helpers) **in the same file** as the class they primarily exist to serve, provided they share a namespace and the combined file stays readable. Benefits: the relationship is obvious at a glance, renames/refactors touch one file, and reviewers don't have to jump between files.
+
+Good candidates for co-location:
+- Enums used by exactly one public type (e.g. `ModuleImportPhase` lives in `ModuleRequest.cs`)
+- Record structs used as the return type of a single method
+- Tiny helper classes with a one-way dependency on a single enclosing type
+
+Split into a separate file when:
+- The type has multiple independent consumers across the assembly
+- It's a `public` type that needs independent XML-doc discoverability
+- The enclosing file would exceed ~500 lines or mix unrelated concepts
+
 ## Testing
 
 - **Jint.Tests/**: Main test suite using xUnit v3
   - Organized by topic (Runtime/, Parser/, Debugger/, etc.)
-  - Uses FluentAssertions for readable assertions
+  - Uses AwesomeAssertions for readable assertions
   - Embedded test scripts in Runtime/Scripts/ and Parser/Scripts/
   - Use timeout of 30 seconds when invoking test runner
 
@@ -194,6 +221,26 @@ if (result.PlainRelativeTo != null)
 - Object pooling reduces GC pressure
 - Expression and function definition caching reduces re-evaluation cost
 - AggressiveInlining attributes mark hot paths
+
+### Unsigned-cast bounds check (`(uint)i < (uint)length`)
+
+Prefer `(uint) index < (uint) array.Length` over `index >= 0 && index < array.Length` when guarding an array/Span/list access where the index could be negative. This is an established pattern in this codebase (already used in `DictionarySlim`, `StringDictionarySlim`, `ValueStringBuilder`, `Arguments`, `TypeConverter`, `JsNumber`, `JintIdentifierExpression`, etc.) and across the .NET BCL.
+
+**How it works:** `int.MinValue..-1` cast to `uint` produces values `0x80000000..0xFFFFFFFF` — all greater than any non-negative `int`. So the single unsigned comparison `(uint)i < (uint)length` is true iff `i` is in `[0, length)`. RyuJIT recognizes this idiom and lowers it to a single `cmp` + `jae` instruction; furthermore, the JIT can use the post-comparison range fact to elide the bounds check on the subsequent `array[i]` access (the index is already proven in range).
+
+**When to use:**
+- Manual bounds checks before a direct `array[i]` / `span[i]` / `list[i]` access where `i` could be negative or oversized — typical in pool/cache code, parser fast paths, and `for`-loop chains where the index isn't a fresh loop variable.
+- Defensive validation of an `int` field/argument before indexing.
+- `for (var i = ...; (uint)i < (uint)arr.Length; ...)` loops where the body indexes `arr[i]`.
+
+**When not to use:**
+- Ordinary `for (var i = 0; i < arr.Length; i++)` loops — the JIT already eliminates the bounds check there; the cast is noise.
+- When the index is known non-negative by construction and you just want a single upper-bound check — plain `i < arr.Length` is clearer and equivalent.
+- When the type is already unsigned (`uint`/`nuint`) — the cast is redundant.
+
+**Caveats:**
+- The pattern relies on `length` fitting in `int` (always true for `Array.Length` / `Span<T>.Length`). For `long` lengths (rare), use `(ulong)i < (ulong)length`.
+- Different phrasings can affect the JIT's ability to elide subsequent bounds checks; prefer `(uint)i < (uint)arr.Length` over `(uint)i <= (uint)(arr.Length - 1)` and similar variants.
 
 ## Working with ES Features
 

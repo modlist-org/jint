@@ -9,7 +9,8 @@ namespace Jint.Native.Temporal;
 /// <summary>
 /// https://tc39.es/proposal-temporal/#sec-temporal.plaindatetime
 /// </summary>
-internal sealed class PlainDateTimeConstructor : Constructor
+[JsObject]
+internal sealed partial class PlainDateTimeConstructor : Constructor
 {
     private static readonly JsString _functionName = new("PlainDateTime");
 
@@ -27,27 +28,15 @@ internal sealed class PlainDateTimeConstructor : Constructor
 
     public PlainDateTimePrototype PrototypeObject { get; }
 
-    protected override void Initialize()
-    {
-        const PropertyFlag PropertyFlags = PropertyFlag.Writable | PropertyFlag.Configurable;
-        const PropertyFlag LengthFlags = PropertyFlag.Configurable;
+    protected override void Initialize() => CreateProperties_Generated();
 
-        var properties = new PropertyDictionary(2, checkExistingKeys: false)
-        {
-            ["from"] = new(new ClrFunction(Engine, "from", From, 1, LengthFlags), PropertyFlags),
-            ["compare"] = new(new ClrFunction(Engine, "compare", Compare, 2, LengthFlags), PropertyFlags),
-        };
-        SetProperties(properties);
-    }
 
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.plaindatetime.from
     /// </summary>
-    private JsPlainDateTime From(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Length = 1)]
+    private JsPlainDateTime From(JsValue thisObject, JsValue item, JsValue optionsValue)
     {
-        var item = arguments.At(0);
-        var optionsValue = arguments.At(1);
-
         // For existing Temporal types (cloning), validate options first then convert
         if (item is JsPlainDateTime || item is JsPlainDate || item is JsZonedDateTime)
         {
@@ -88,11 +77,12 @@ internal sealed class PlainDateTimeConstructor : Constructor
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.plaindatetime.compare
     /// </summary>
-    private JsNumber Compare(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsNumber Compare(JsValue thisObject, JsValue one, JsValue two)
     {
-        var one = ToTemporalDateTime(arguments.At(0), "constrain");
-        var two = ToTemporalDateTime(arguments.At(1), "constrain");
-        return JsNumber.Create(TemporalHelpers.CompareIsoDateTimes(one.IsoDateTime, two.IsoDateTime));
+        return JsNumber.Create(TemporalHelpers.CompareIsoDateTimes(
+            ToTemporalDateTime(one, "constrain").IsoDateTime,
+            ToTemporalDateTime(two, "constrain").IsoDateTime));
     }
 
     protected internal override JsValue Call(JsValue thisObject, JsCallArguments arguments)
@@ -258,7 +248,7 @@ internal sealed class PlainDateTimeConstructor : Constructor
         var dayValue = obj.Get("day");
         if (dayValue.IsUndefined())
         {
-            Throw.TypeError(_realm, "Missing required property: day");
+            Throw.TypeError(_realm, "Missing day");
         }
 
         var day = TemporalHelpers.ToPositiveIntegerWithTruncation(_realm, dayValue);
@@ -293,7 +283,7 @@ internal sealed class PlainDateTimeConstructor : Constructor
         // 8. monthCode - read and convert immediately, validate well-formedness
         var monthCodeValue = obj.Get("monthCode");
         string? monthCodeStr = null;
-        int? monthFromCode = null;
+        int monthFromCode = 0;
         if (!monthCodeValue.IsUndefined())
         {
             // monthCode must be a string (per spec)
@@ -335,23 +325,8 @@ internal sealed class PlainDateTimeConstructor : Constructor
         var secondValue = obj.Get("second");
         var second = secondValue.IsUndefined() ? 0 : TemporalHelpers.ToIntegerWithTruncationAsInt(_realm, secondValue);
 
-        // 11. year - use eraYear if computed, otherwise read from property
-        int year;
-        if (eraYear.HasValue)
-        {
-            year = eraYear.Value;
-            obj.Get("year");
-        }
-        else
-        {
-            var yearValue = obj.Get("year");
-            if (yearValue.IsUndefined())
-            {
-                Throw.TypeError(_realm, "Missing required property: year");
-            }
-
-            year = TemporalHelpers.ToIntegerWithTruncationAsInt(_realm, yearValue);
-        }
+        // 11. year - use eraYear if computed, otherwise read from property.
+        var year = TemporalHelpers.ResolveYearFromEraOrYear(_realm, obj, eraYear, requireYear: true, out _);
 
         // 12. Read options.overflow AFTER all fields (but BEFORE algorithmic validation)
         var overflow = optionsValue.IsUndefined() ? "constrain" : TemporalHelpers.GetOverflowOption(_realm, optionsValue);
@@ -366,35 +341,20 @@ internal sealed class PlainDateTimeConstructor : Constructor
             }
 
             // Check month is in range 01-12 (not 00, 13, etc.)
-            if (monthFromCode!.Value < 1 || monthFromCode.Value > 12)
+            if (monthFromCode < 1 || monthFromCode > 12)
             {
-                Throw.RangeError(_realm, $"Month {monthFromCode.Value} is not valid for ISO 8601 calendar");
+                Throw.RangeError(_realm, $"Month {monthFromCode} is not valid for ISO 8601 calendar");
             }
         }
 
-        // Now validate and combine month/monthCode
-        if (monthCodeStr is not null)
-        {
-            if (TemporalHelpers.IsGregorianBasedCalendar(calendar))
-            {
-                // Validate: both month and monthCode provided - they must match
-                if (month != 0 && monthFromCode.HasValue && month != monthFromCode.Value)
-                {
-                    Throw.RangeError(_realm, "month and monthCode must match");
-                }
-
-                // For ISO, use parsed month number
-                if (monthFromCode.HasValue)
-                {
-                    month = monthFromCode.Value;
-                }
-            }
-        }
-
+        // Required-field check (TypeError) MUST come before mismatch check (RangeError).
         if (month == 0 && monthCodeStr is null)
         {
-            Throw.TypeError(_realm, "month or monthCode is required");
+            Throw.TypeError(_realm, "Missing month/monthCode");
         }
+
+        // Range validation: month/monthCode mismatch — must come AFTER required-field checks.
+        month = TemporalHelpers.ValidateMonthAndMonthCode(_realm, calendar, year, month, monthCodeStr, monthFromCode);
 
         // Validate year range for ISO calendars only (non-ISO will validate during conversion)
         if (TemporalHelpers.IsGregorianBasedCalendar(calendar) && (year < -271821 || year > 275760))

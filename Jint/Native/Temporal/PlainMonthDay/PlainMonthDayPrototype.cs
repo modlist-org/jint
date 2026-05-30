@@ -9,9 +9,13 @@ namespace Jint.Native.Temporal;
 /// <summary>
 /// https://tc39.es/proposal-temporal/#sec-properties-of-the-temporal-plainmonthday-prototype-object
 /// </summary>
-internal sealed class PlainMonthDayPrototype : Prototype
+[JsObject]
+internal sealed partial class PlainMonthDayPrototype : Prototype
 {
+    [JsProperty(Name = "constructor", Flags = PropertyFlag.NonEnumerable)]
     private readonly PlainMonthDayConstructor _constructor;
+
+    [JsSymbol("ToStringTag", Flags = PropertyFlag.Configurable)] private static readonly JsString PlainMonthDayToStringTag = new("Temporal.PlainMonthDay");
 
     internal PlainMonthDayPrototype(
         Engine engine,
@@ -25,31 +29,10 @@ internal sealed class PlainMonthDayPrototype : Prototype
 
     protected override void Initialize()
     {
-        const PropertyFlag PropertyFlags = PropertyFlag.Writable | PropertyFlag.Configurable;
-        const PropertyFlag LengthFlags = PropertyFlag.Configurable;
-
-        var properties = new PropertyDictionary(11, checkExistingKeys: false)
-        {
-            ["constructor"] = new PropertyDescriptor(_constructor, PropertyFlag.NonEnumerable),
-            ["with"] = new(new ClrFunction(Engine, "with", With, 1, LengthFlags), PropertyFlags),
-            ["equals"] = new(new ClrFunction(Engine, "equals", Equals, 1, LengthFlags), PropertyFlags),
-            ["toString"] = new(new ClrFunction(Engine, "toString", ToTemporalString, 0, LengthFlags), PropertyFlags),
-            ["toJSON"] = new(new ClrFunction(Engine, "toJSON", ToJSON, 0, LengthFlags), PropertyFlags),
-            ["toLocaleString"] = new(new ClrFunction(Engine, "toLocaleString", ToLocaleString, 0, LengthFlags), PropertyFlags),
-            ["valueOf"] = new(new ClrFunction(Engine, "valueOf", ValueOf, 0, LengthFlags), PropertyFlags),
-            ["toPlainDate"] = new(new ClrFunction(Engine, "toPlainDate", ToPlainDate, 1, LengthFlags), PropertyFlags),
-            ["calendarId"] = new GetSetPropertyDescriptor(new ClrFunction(Engine, "get calendarId", GetCalendarId, 0, PropertyFlag.Configurable), Undefined, PropertyFlag.Configurable),
-            ["monthCode"] = new GetSetPropertyDescriptor(new ClrFunction(Engine, "get monthCode", GetMonthCode, 0, PropertyFlag.Configurable), Undefined, PropertyFlag.Configurable),
-            ["day"] = new GetSetPropertyDescriptor(new ClrFunction(Engine, "get day", GetDay, 0, PropertyFlag.Configurable), Undefined, PropertyFlag.Configurable),
-        };
-        SetProperties(properties);
-
-        var symbols = new SymbolDictionary(1)
-        {
-            [GlobalSymbolRegistry.ToStringTag] = new("Temporal.PlainMonthDay", PropertyFlag.Configurable)
-        };
-        SetSymbols(symbols);
+        CreateProperties_Generated();
+        CreateSymbols_Generated();
     }
+
 
     private JsPlainMonthDay ValidatePlainMonthDay(JsValue thisObject)
     {
@@ -60,27 +43,28 @@ internal sealed class PlainMonthDayPrototype : Prototype
     }
 
     // Getters
-    private JsString GetCalendarId(JsValue thisObject, JsCallArguments arguments) => new JsString(ValidatePlainMonthDay(thisObject).Calendar);
-    private JsString GetMonthCode(JsValue thisObject, JsCallArguments arguments)
+    [JsAccessor("calendarId")]
+    private JsString GetCalendarId(JsValue thisObject) => new JsString(ValidatePlainMonthDay(thisObject).Calendar);
+    [JsAccessor("monthCode")]
+    private JsString GetMonthCode(JsValue thisObject)
     {
         var md = ValidatePlainMonthDay(thisObject);
-        return new JsString(TemporalHelpers.CalendarMonthCode(md.Calendar, md.IsoDate));
+        return new JsString(TemporalHelpers.CalendarMonthCode(md.Calendar, md.IsoDate, _engine));
     }
-    private JsNumber GetDay(JsValue thisObject, JsCallArguments arguments)
+    [JsAccessor("day")]
+    private JsNumber GetDay(JsValue thisObject)
     {
         var md = ValidatePlainMonthDay(thisObject);
-        return JsNumber.Create(TemporalHelpers.CalendarDay(md.Calendar, md.IsoDate));
+        return JsNumber.Create(TemporalHelpers.CalendarDay(md.Calendar, md.IsoDate, _engine));
     }
 
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.plainmonthday.prototype.with
     /// </summary>
-    private JsPlainMonthDay With(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Length = 1)]
+    private JsPlainMonthDay With(JsValue thisObject, JsValue temporalMonthDayLike, JsValue options)
     {
         var md = ValidatePlainMonthDay(thisObject);
-        var temporalMonthDayLike = arguments.At(0);
-        var optionsArg = arguments.At(1);
-
         if (!temporalMonthDayLike.IsObject())
         {
             Throw.TypeError(_realm, "with argument must be an object");
@@ -114,13 +98,13 @@ internal sealed class PlainMonthDayPrototype : Prototype
         // 1. day
         var dayProp = obj.Get("day");
         var day = dayProp.IsUndefined()
-            ? (isNonIso ? TemporalHelpers.CalendarDay(md.Calendar, md.IsoDate) : md.IsoDate.Day)
+            ? (isNonIso ? TemporalHelpers.CalendarDay(md.Calendar, md.IsoDate, _engine) : md.IsoDate.Day)
             : TemporalHelpers.ToPositiveIntegerWithTruncation(_realm, dayProp);
 
         // 2. month
         var monthProp = obj.Get("month");
         var month = monthProp.IsUndefined()
-            ? (isNonIso ? TemporalHelpers.CalendarMonth(md.Calendar, md.IsoDate) : md.IsoDate.Month)
+            ? (isNonIso ? TemporalHelpers.CalendarMonth(md.Calendar, md.IsoDate, _engine) : md.IsoDate.Month)
             : TemporalHelpers.ToPositiveIntegerWithTruncation(_realm, monthProp);
 
         // 3. monthCode - read but don't validate yet
@@ -165,7 +149,7 @@ internal sealed class PlainMonthDayPrototype : Prototype
         }
 
         // Read options BEFORE any validation (per spec)
-        var overflow = TemporalHelpers.GetOverflowOption(_realm, optionsArg);
+        var overflow = TemporalHelpers.GetOverflowOption(_realm, options);
 
         // For non-ISO calendars, monthCode is required when month is provided
         if (!string.Equals(md.Calendar, "iso8601", StringComparison.Ordinal) &&
@@ -177,7 +161,7 @@ internal sealed class PlainMonthDayPrototype : Prototype
         // Default monthCode from calendar when not provided and month not explicitly set
         if (monthCodeProp.IsUndefined() && monthProp.IsUndefined() && isNonIso)
         {
-            monthCode = TemporalHelpers.CalendarMonthCode(md.Calendar, md.IsoDate);
+            monthCode = TemporalHelpers.CalendarMonthCode(md.Calendar, md.IsoDate, _engine);
         }
 
         // NOW validate monthCode (after options are read)
@@ -202,7 +186,7 @@ internal sealed class PlainMonthDayPrototype : Prototype
         {
             // For non-ISO calendars, use calendar-aware date construction
             var calYear = isNonIso && yearProp.IsUndefined()
-                ? TemporalHelpers.CalendarYear(md.Calendar, md.IsoDate)
+                ? TemporalHelpers.CalendarYear(md.Calendar, md.IsoDate, _engine)
                 : year;
             var calDate = TemporalHelpers.CalendarDateToISO(_realm, md.Calendar, calYear,
                 monthProp.IsUndefined() ? 0 : month, day, overflow, monthCode);
@@ -231,15 +215,16 @@ internal sealed class PlainMonthDayPrototype : Prototype
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.plainmonthday.prototype.equals
     /// </summary>
-    private JsBoolean Equals(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsBoolean Equals(JsValue thisObject, JsValue other)
     {
         var md = ValidatePlainMonthDay(thisObject);
-        var other = _constructor.ToTemporalMonthDay(arguments.At(0), "constrain");
+        var otherMd = _constructor.ToTemporalMonthDay(other, "constrain");
 
-        return md.IsoDate.Year == other.IsoDate.Year &&
-               md.IsoDate.Month == other.IsoDate.Month &&
-               md.IsoDate.Day == other.IsoDate.Day &&
-               string.Equals(md.Calendar, other.Calendar, StringComparison.Ordinal)
+        return md.IsoDate.Year == otherMd.IsoDate.Year &&
+               md.IsoDate.Month == otherMd.IsoDate.Month &&
+               md.IsoDate.Day == otherMd.IsoDate.Day &&
+               string.Equals(md.Calendar, otherMd.Calendar, StringComparison.Ordinal)
             ? JsBoolean.True
             : JsBoolean.False;
     }
@@ -247,10 +232,10 @@ internal sealed class PlainMonthDayPrototype : Prototype
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.plainmonthday.prototype.tostring
     /// </summary>
-    private JsString ToTemporalString(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Length = 0, Name = "toString")]
+    private JsString ToTemporalString(JsValue thisObject, JsValue optionsValue)
     {
         var md = ValidatePlainMonthDay(thisObject);
-        var optionsValue = arguments.At(0);
         var options = TemporalHelpers.GetOptionsObject(_realm, optionsValue);
         var showCalendar = GetCalendarNameOption(options);
 
@@ -292,7 +277,8 @@ internal sealed class PlainMonthDayPrototype : Prototype
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.plainmonthday.prototype.tojson
     /// </summary>
-    private JsString ToJSON(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsString ToJSON(JsValue thisObject)
     {
         var md = ValidatePlainMonthDay(thisObject);
         // toJSON uses "auto" for calendarName: include year+calendar for non-ISO
@@ -308,12 +294,10 @@ internal sealed class PlainMonthDayPrototype : Prototype
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sup-temporal.plainmonthday.prototype.tolocalestring
     /// </summary>
-    private JsValue ToLocaleString(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Length = 0)]
+    private JsValue ToLocaleString(JsValue thisObject, JsValue locales, JsValue options)
     {
         var md = ValidatePlainMonthDay(thisObject);
-        var locales = arguments.At(0);
-        var options = arguments.At(1);
-
         // Per spec: CreateDateTimeFormat with required=~date~, defaults=~date~
         // But for PlainMonthDay, we use month-day specific defaults (no year)
         var dtf = _realm.Intrinsics.DateTimeFormat.CreateDateTimeFormat(
@@ -332,7 +316,8 @@ internal sealed class PlainMonthDayPrototype : Prototype
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.plainmonthday.prototype.valueof
     /// </summary>
-    private JsValue ValueOf(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsValue ValueOf(JsValue thisObject)
     {
         Throw.TypeError(_realm, "Temporal.PlainMonthDay cannot be converted to a primitive value");
         return Undefined;
@@ -341,11 +326,10 @@ internal sealed class PlainMonthDayPrototype : Prototype
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.plainmonthday.prototype.toplaindate
     /// </summary>
-    private JsPlainDate ToPlainDate(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsPlainDate ToPlainDate(JsValue thisObject, JsValue item)
     {
         var md = ValidatePlainMonthDay(thisObject);
-        var item = arguments.At(0);
-
         if (!item.IsObject())
         {
             Throw.TypeError(_realm, "toPlainDate requires an object argument");

@@ -13,7 +13,8 @@ using Jint.Runtime.Interop;
 
 namespace Jint.Native.Array;
 
-public sealed class ArrayConstructor : Constructor
+[JsObject]
+public sealed partial class ArrayConstructor : Constructor
 {
     private static readonly JsString _functionName = new JsString("Array");
 
@@ -34,25 +35,14 @@ public sealed class ArrayConstructor : Constructor
 
     protected override void Initialize()
     {
-        var properties = new PropertyDictionary(4, checkExistingKeys: false)
-        {
-            ["from"] = new PropertyDescriptor(new PropertyDescriptor(new ClrFunction(Engine, "from", From, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable)),
-            ["fromAsync"] = new PropertyDescriptor(new PropertyDescriptor(new ClrFunction(Engine, "fromAsync", FromAsync, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable)),
-            ["isArray"] = new PropertyDescriptor(new PropertyDescriptor(new ClrFunction(Engine, "isArray", IsArray, 1), PropertyFlag.NonEnumerable)),
-            ["of"] = new PropertyDescriptor(new PropertyDescriptor(new ClrFunction(Engine, "of", Of, 0, PropertyFlag.Configurable), PropertyFlag.NonEnumerable))
-        };
-        SetProperties(properties);
-
-        var symbols = new SymbolDictionary(1)
-        {
-            [GlobalSymbolRegistry.Species] = new GetSetPropertyDescriptor(get: new ClrFunction(Engine, "get [Symbol.species]", Species, 0, PropertyFlag.Configurable), set: Undefined, PropertyFlag.Configurable),
-        };
-        SetSymbols(symbols);
+        CreateProperties_Generated();
+        CreateSymbols_Generated();
     }
 
     /// <summary>
     /// https://tc39.es/ecma262/#sec-array.from
     /// </summary>
+    [JsFunction(Length = 1)]
     private JsValue From(JsValue thisObject, JsCallArguments arguments)
     {
         var items = arguments.At(0);
@@ -96,6 +86,7 @@ public sealed class ArrayConstructor : Constructor
     /// <summary>
     /// https://tc39.es/ecma262/#sec-array.fromasync
     /// </summary>
+    [JsFunction(Length = 1)]
     private JsValue FromAsync(JsValue thisObject, JsCallArguments arguments)
     {
         var asyncItems = arguments.At(0);
@@ -687,6 +678,7 @@ public sealed class ArrayConstructor : Constructor
         }
     }
 
+    [JsFunction]
     private JsValue Of(JsValue thisObject, JsCallArguments arguments)
     {
         var len = arguments.Length;
@@ -725,11 +717,10 @@ public sealed class ArrayConstructor : Constructor
         return a;
     }
 
-    private static JsValue Species(JsValue thisObject, JsCallArguments arguments)
-    {
-        return thisObject;
-    }
+    [JsSymbolAccessor("Species")]
+    private static JsValue Species(JsValue thisObject) => thisObject;
 
+    [JsFunction(Length = 1)]
     private static JsValue IsArray(JsValue thisObject, JsCallArguments arguments)
     {
         var o = arguments.At(0);
@@ -805,7 +796,10 @@ public sealed class ArrayConstructor : Constructor
             {
                 case JsNumber number:
                     ValidateLength(number._value);
-                    instance = ArrayCreate((ulong) number._value, prototypeObject);
+                    // `new Array(N)` is a length declaration; the slots are notionally sparse
+                    // and may never be written. Use the lazy variant so we don't allocate a
+                    // JsValue?[N] backing array up front (~80 MB on dromaeo-object-array).
+                    instance = ArrayCreateLazy((ulong) number._value, prototypeObject);
                     break;
                 case IObjectWrapper objectWrapper:
                     instance = objectWrapper.Target is IEnumerable enumerable
@@ -848,6 +842,28 @@ public sealed class ArrayConstructor : Constructor
 
         proto ??= PrototypeObject;
         var instance = new JsArray(Engine, (uint) length, (uint) length)
+        {
+            _prototype = proto
+        };
+        return instance;
+    }
+
+    /// <summary>
+    /// Like <see cref="ArrayCreate"/> but defers backing-array allocation until a slot is
+    /// actually written. Use for the user-facing <c>new Array(N)</c> path where the slots
+    /// are notionally sparse. Internal callers that immediately fill <paramref name="length"/>
+    /// consecutive slots should use <see cref="ArrayCreate"/> so the doubling-growth loop is
+    /// amortized over a single up-front allocation.
+    /// </summary>
+    internal JsArray ArrayCreateLazy(ulong length, ObjectInstance? proto = null)
+    {
+        if (length > ArrayOperations.MaxArrayLength)
+        {
+            Throw.RangeError(_realm, "Invalid array length " + length);
+        }
+
+        proto ??= PrototypeObject;
+        var instance = new JsArray(Engine, capacity: 0, length: (uint) length)
         {
             _prototype = proto
         };

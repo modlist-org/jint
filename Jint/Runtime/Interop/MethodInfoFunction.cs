@@ -17,7 +17,7 @@ internal sealed class MethodInfoFunction : Function
     private readonly object? _target;
     private readonly string _name;
     private readonly MethodDescriptor[] _methods;
-    private readonly ClrFunction? _fallbackClrFunctionInstance;
+    private readonly Function? _fallbackFunctionInstance;
 
     public MethodInfoFunction(
         Engine engine,
@@ -25,14 +25,14 @@ internal sealed class MethodInfoFunction : Function
         object? target,
         string name,
         MethodDescriptor[] methods,
-        ClrFunction? fallbackClrFunctionInstance = null)
+        Function? fallbackFunctionInstance = null)
         : base(engine, engine.Realm, new JsString(name))
     {
         _targetType = targetType;
         _target = target;
         _name = name;
         _methods = methods;
-        _fallbackClrFunctionInstance = fallbackClrFunctionInstance;
+        _fallbackFunctionInstance = fallbackFunctionInstance;
         _prototype = engine.Realm.Intrinsics.Function.PrototypeObject;
     }
 
@@ -51,6 +51,13 @@ internal sealed class MethodInfoFunction : Function
 
         if (parameterType.IsGenericParameter || parameterType.IsGenericType)
         {
+            // For fully concrete generic types (no open type parameters), verify the argument
+            // is actually assignable to prevent incorrect direct assignment when type arguments
+            // differ (e.g., object[] should not be directly assigned to IList<string>)
+            if (!parameterType.ContainsGenericParameters && !parameterType.IsAssignableFrom(argObj.GetType()))
+            {
+                return false;
+            }
             return true;
         }
         return false;
@@ -178,13 +185,17 @@ internal sealed class MethodInfoFunction : Function
 
             var argumentsMatch = true;
             var resolvedMethod = ResolveMethod(method.Method, methodParameters, arguments);
-            // TPC: if we're concerned about cost of MethodInfo.GetParameters() - we could only invoke it if this ends up being a generic method (i.e. they will be different in that scenario)
-            methodParameters = resolvedMethod.GetParameters();
+            // We only need to call GetParameters it if this ends up being a generic method (i.e. they will be different in that scenario)
+            if (resolvedMethod.IsGenericMethod)
+            {
+                methodParameters = resolvedMethod.GetParameters();
+            }
             for (var i = 0; i < parameters.Length; i++)
             {
                 var methodParameter = methodParameters[i];
                 var parameterType = methodParameter.ParameterType;
                 var argument = arguments.Length > i ? arguments[i] : null;
+                object? argumentObject = null;
 
                 if (typeof(JsValue).IsAssignableFrom(parameterType))
                 {
@@ -195,9 +206,11 @@ internal sealed class MethodInfoFunction : Function
                     // optional
                     parameters[i] = System.Type.Missing;
                 }
-                else if (IsGenericParameter(argument.ToObject(), parameterType)) // don't think we need the condition preface of (argument == null) because of earlier condition
+                else if (IsGenericParameter(argumentObject = argument.ToObject(), parameterType)) // don't think we need the condition preface of (argument == null) because of earlier condition
                 {
-                    parameters[i] = argument.ToObject();
+                    // ^ this is the best way I could think of to only eval argument.ToObject() when needed.
+                    // But it's very cursed, I'm sorry.
+                    parameters[i] = argumentObject;
                 }
                 else if (parameterType == typeof(JsValue[]) && argument.IsArray())
                 {
@@ -215,7 +228,7 @@ internal sealed class MethodInfoFunction : Function
                 else
                 {
                     if (!ReflectionExtensions.TryConvertViaTypeCoercion(parameterType, _engine.Options.Interop.ValueCoercion, argument, out parameters[i])
-                        && !converter.TryConvert(argument.ToObject(), parameterType, CultureInfo.InvariantCulture, out parameters[i]))
+                        && !converter.TryConvert(argumentObject, parameterType, CultureInfo.InvariantCulture, out parameters[i]))
                     {
                         argumentsMatch = false;
                         break;
@@ -256,9 +269,9 @@ internal sealed class MethodInfoFunction : Function
             }
         }
 
-        if (_fallbackClrFunctionInstance is not null)
+        if (_fallbackFunctionInstance is not null)
         {
-            return _fallbackClrFunctionInstance.Call(thisObject, jsArguments);
+            return _fallbackFunctionInstance.Call(thisObject, jsArguments);
         }
 
         Throw.TypeError(_engine.Realm, "No public methods with the specified arguments were found.");

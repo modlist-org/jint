@@ -19,10 +19,14 @@ namespace Jint.Native.String;
 /// <summary>
 /// https://tc39.es/ecma262/#sec-properties-of-the-string-prototype-object
 /// </summary>
-internal sealed class StringPrototype : StringInstance
+[JsObject(ExtraCapacity = 2)]
+internal sealed partial class StringPrototype : StringInstance
 {
     private readonly Realm _realm;
+
+    [JsProperty(Name = "constructor", Flags = PropertyFlag.NonEnumerable)]
     private readonly StringConstructor _constructor;
+
     internal ClrFunction? _originalIteratorFunction;
 
     internal StringPrototype(
@@ -43,66 +47,19 @@ internal sealed class StringPrototype : StringInstance
         const PropertyFlag lengthFlags = PropertyFlag.Configurable;
         const PropertyFlag propertyFlags = lengthFlags | PropertyFlag.Writable;
 
-        var trimStart = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "trimStart", prototype.TrimStart, 0, lengthFlags), propertyFlags);
-        var trimEnd = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "trimEnd", prototype.TrimEnd, 0, lengthFlags), propertyFlags);
-        var properties = new PropertyDictionary(50, checkExistingKeys: false)
-        {
-            ["constructor"] = new PropertyDescriptor(_constructor, PropertyFlag.NonEnumerable),
-            ["toString"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "toString", prototype.ToStringString, 0, lengthFlags), propertyFlags),
-            ["valueOf"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "valueOf", prototype.ValueOf, 0, lengthFlags), propertyFlags),
-            ["charAt"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "charAt", prototype.CharAt, 1, lengthFlags), propertyFlags),
-            ["charCodeAt"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "charCodeAt", prototype.CharCodeAt, 1, lengthFlags), propertyFlags),
-            ["codePointAt"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "codePointAt", prototype.CodePointAt, 1, lengthFlags), propertyFlags),
-            ["concat"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "concat", prototype.Concat, 1, lengthFlags), propertyFlags),
-            ["indexOf"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "indexOf", prototype.IndexOf, 1, lengthFlags), propertyFlags),
-            ["endsWith"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "endsWith", prototype.EndsWith, 1, lengthFlags), propertyFlags),
-            ["startsWith"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "startsWith", prototype.StartsWith, 1, lengthFlags), propertyFlags),
-            ["lastIndexOf"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "lastIndexOf", prototype.LastIndexOf, 1, lengthFlags), propertyFlags),
-            ["localeCompare"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "localeCompare", prototype.LocaleCompare, 1, lengthFlags), propertyFlags),
-            ["match"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "match", prototype.Match, 1, lengthFlags), propertyFlags),
-            ["matchAll"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "matchAll", prototype.MatchAll, 1, lengthFlags), propertyFlags),
-            ["replace"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "replace", prototype.Replace, 2, lengthFlags), propertyFlags),
-            ["replaceAll"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "replaceAll", prototype.ReplaceAll, 2, lengthFlags), propertyFlags),
-            ["search"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "search", prototype.Search, 1, lengthFlags), propertyFlags),
-            ["slice"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "slice", prototype.Slice, 2, lengthFlags), propertyFlags),
-            ["split"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "split", prototype.Split, 2, lengthFlags), propertyFlags),
-            ["substr"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "substr", prototype.Substr, 2, lengthFlags), propertyFlags),
-            ["substring"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "substring", prototype.Substring, 2, lengthFlags), propertyFlags),
-            ["toLowerCase"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "toLowerCase", prototype.ToLowerCase, 0, lengthFlags), propertyFlags),
-            ["toLocaleLowerCase"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "toLocaleLowerCase", prototype.ToLocaleLowerCase, 0, lengthFlags), propertyFlags),
-            ["toUpperCase"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "toUpperCase", prototype.ToUpperCase, 0, lengthFlags), propertyFlags),
-            ["toLocaleUpperCase"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "toLocaleUpperCase", prototype.ToLocaleUpperCase, 0, lengthFlags), propertyFlags),
-            ["trim"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "trim", prototype.Trim, 0, lengthFlags), propertyFlags),
-            ["trimStart"] = trimStart,
-            ["trimEnd"] = trimEnd,
-            ["trimLeft"] = trimStart,
-            ["trimRight"] = trimEnd,
-            ["padStart"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "padStart", prototype.PadStart, 1, lengthFlags), propertyFlags),
-            ["padEnd"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "padEnd", prototype.PadEnd, 1, lengthFlags), propertyFlags),
-            ["includes"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "includes", prototype.Includes, 1, lengthFlags), propertyFlags),
-            ["normalize"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "normalize", prototype.Normalize, 0, lengthFlags), propertyFlags),
-            ["repeat"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "repeat", prototype.Repeat, 1, lengthFlags), propertyFlags),
-            ["at"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "at", prototype.At, 1, lengthFlags), propertyFlags),
-            ["isWellFormed"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "isWellFormed", prototype.IsWellFormed, 0, lengthFlags), propertyFlags),
-            ["toWellFormed"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "toWellFormed", prototype.ToWellFormed, 0, lengthFlags), propertyFlags),
+        CreateProperties_Generated();
 
-            // B.2.2 Additional Properties of the String.prototype Object (HTML methods)
-            ["anchor"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "anchor", prototype.Anchor, 1, lengthFlags), propertyFlags),
-            ["big"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "big", prototype.Big, 0, lengthFlags), propertyFlags),
-            ["blink"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "blink", prototype.Blink, 0, lengthFlags), propertyFlags),
-            ["bold"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "bold", prototype.Bold, 0, lengthFlags), propertyFlags),
-            ["fixed"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "fixed", prototype.Fixed, 0, lengthFlags), propertyFlags),
-            ["fontcolor"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "fontcolor", prototype.FontColor, 1, lengthFlags), propertyFlags),
-            ["fontsize"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "fontsize", prototype.FontSize, 1, lengthFlags), propertyFlags),
-            ["italics"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "italics", prototype.Italics, 0, lengthFlags), propertyFlags),
-            ["link"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "link", prototype.Link, 1, lengthFlags), propertyFlags),
-            ["small"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "small", prototype.Small, 0, lengthFlags), propertyFlags),
-            ["strike"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "strike", prototype.Strike, 0, lengthFlags), propertyFlags),
-            ["sub"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "sub", prototype.Sub, 0, lengthFlags), propertyFlags),
-            ["sup"] = new LazyPropertyDescriptor<StringPrototype>(this, static prototype => new ClrFunction(prototype._engine, "sup", prototype.Sup, 0, lengthFlags), propertyFlags),
-        };
-        SetProperties(properties);
+        // B.2.3: trimLeft/trimRight are aliases for trimStart/trimEnd. Aliasing the same descriptor
+        // instance shares the same lazy-resolved Function reference. AddDangerous skips
+        // duplicate-key probing and SetOwnProperty's validation pipeline; ExtraCapacity=2 on
+        // [JsObject] presizes the dict so these adds don't trigger a resize.
+        _properties!.TryGetValue("trimStart", out var trimStartDescriptor);
+        _properties.TryGetValue("trimEnd", out var trimEndDescriptor);
+        _properties.AddDangerous("trimLeft", trimStartDescriptor);
+        _properties.AddDangerous("trimRight", trimEndDescriptor);
 
+        // [Symbol.iterator] kept hand-written: needs to capture _originalIteratorFunction for
+        // the HasOriginalIterator fast-path detection used by string iteration consumers.
         _originalIteratorFunction = new ClrFunction(_engine, "[Symbol.iterator]", Iterator, 0, lengthFlags);
         var symbols = new SymbolDictionary(1)
         {
@@ -120,7 +77,8 @@ internal sealed class StringPrototype : StringInstance
         return _realm.Intrinsics.StringIteratorPrototype.Construct(str);
     }
 
-    private JsValue ToStringString(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Name = "toString")]
+    private JsValue ToStringString(JsValue thisObject)
     {
         if (thisObject.IsString())
         {
@@ -208,9 +166,10 @@ internal sealed class StringPrototype : StringInstance
     /// https://tc39.es/ecma262/#sec-string.prototype.trim
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private JsValue Trim(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    [RequireObjectCoercible]
+    private static JsValue Trim(JsValue thisObject)
     {
-        TypeConverter.RequireObjectCoercible(Engine, thisObject);
         var s = TypeConverter.ToJsString(thisObject);
         if (s.Length == 0 || (!IsWhiteSpaceEx(s[0]) && !IsWhiteSpaceEx(s[s.Length - 1])))
         {
@@ -222,9 +181,10 @@ internal sealed class StringPrototype : StringInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-string.prototype.trimstart
     /// </summary>
-    private JsValue TrimStart(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    [RequireObjectCoercible]
+    private static JsValue TrimStart(JsValue thisObject)
     {
-        TypeConverter.RequireObjectCoercible(Engine, thisObject);
         var s = TypeConverter.ToJsString(thisObject);
         if (s.Length == 0 || !IsWhiteSpaceEx(s[0]))
         {
@@ -236,9 +196,10 @@ internal sealed class StringPrototype : StringInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-string.prototype.trimend
     /// </summary>
-    private JsValue TrimEnd(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    [RequireObjectCoercible]
+    private static JsValue TrimEnd(JsValue thisObject)
     {
-        TypeConverter.RequireObjectCoercible(Engine, thisObject);
         var s = TypeConverter.ToJsString(thisObject);
         if (s.Length == 0 || !IsWhiteSpaceEx(s[s.Length - 1]))
         {
@@ -247,9 +208,10 @@ internal sealed class StringPrototype : StringInstance
         return TrimEndEx(s.ToString());
     }
 
+    [JsFunction]
+    [RequireObjectCoercible]
     private JsValue ToLocaleUpperCase(JsValue thisObject, JsCallArguments arguments)
     {
-        TypeConverter.RequireObjectCoercible(_engine, thisObject);
         var s = TypeConverter.ToString(thisObject);
 
         // https://tc39.es/ecma402/#sup-string.prototype.tolocaleuppercase
@@ -267,25 +229,199 @@ internal sealed class StringPrototype : StringInstance
 #if NET462
             // Code specific to .NET Framework 4.6.2.
             // For no good reason this verison does not upper case these characters correctly.
-            return new JsString(s.ToUpper(culture)
+            return new JsString(ToUpperCaseWithSpecialCasing(s, culture)
                 .Replace("ϳ", "Ϳ")
                 .Replace("ʝ", "Ʝ"));
 #endif
         }
 
-        return new JsString(s.ToUpper(culture));
+        return new JsString(ToUpperCaseWithSpecialCasing(s, culture));
     }
 
-    private JsValue ToUpperCase(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    [RequireObjectCoercible]
+    private static JsValue ToUpperCase(JsValue thisObject)
     {
-        TypeConverter.RequireObjectCoercible(_engine, thisObject);
         var s = TypeConverter.ToString(thisObject);
-        return new JsString(s.ToUpperInvariant());
+        return new JsString(ToUpperCaseWithSpecialCasing(s, CultureInfo.InvariantCulture));
     }
 
+    /// <summary>
+    /// Converts string to uppercase with Unicode SpecialCasing.txt unconditional, locale-insensitive
+    /// expansions (e.g. ß → SS, ﬀ → FF, Greek titlecase → upper + Ι).
+    /// https://www.unicode.org/Public/UCD/latest/ucd/SpecialCasing.txt
+    /// </summary>
+    private static string ToUpperCaseWithSpecialCasing(string s, CultureInfo culture)
+    {
+        // Fast path: no codepoint in the string has a SpecialCasing expansion.
+        if (!NeedsUpperSpecialCasing(s))
+        {
+            return s.ToUpper(culture);
+        }
+
+        // Stack buffer covers most strings; ValueStringBuilder rents from ArrayPool if it grows beyond.
+        Span<char> stackBuffer = stackalloc char[128];
+        var sb = new ValueStringBuilder(stackBuffer);
+        for (var i = 0; i < s.Length; i++)
+        {
+            var c = s[i];
+            var mapped = GetSpecialUpperCasing(c);
+            if (mapped is not null)
+            {
+                sb.Append(mapped);
+            }
+            else if (char.IsHighSurrogate(c) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]))
+            {
+                // No supplementary-plane special-cased uppercase mappings — pass through.
+                sb.Append(c);
+                sb.Append(s[i + 1]);
+                i++;
+            }
+            else
+            {
+                sb.Append(char.ToUpper(c, culture));
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    private static bool NeedsUpperSpecialCasing(string s)
+    {
+        foreach (var c in s)
+        {
+            if (GetSpecialUpperCasing(c) is not null)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Returns the SpecialCasing.txt unconditional uppercase expansion for a BMP code point,
+    /// or <c>null</c> if no special mapping applies.
+    /// </summary>
+    private static string? GetSpecialUpperCasing(char c)
+    {
+        // ASCII has no SpecialCasing.txt expansions; the lowest mapped codepoint is U+00DF.
+        if (c < '\u00DF')
+        {
+            return null;
+        }
+
+        return c switch
+        {
+            '\u00DF' => "\u0053\u0053", // LATIN SMALL LETTER SHARP S
+            '\u0149' => "\u02BC\u004E", // LATIN SMALL LETTER N PRECEDED BY APOSTROPHE
+            '\u01F0' => "\u004A\u030C", // LATIN SMALL LETTER J WITH CARON
+            '\u0390' => "\u0399\u0308\u0301", // GREEK SMALL LETTER IOTA WITH DIALYTIKA AND TONOS
+            '\u03B0' => "\u03A5\u0308\u0301", // GREEK SMALL LETTER UPSILON WITH DIALYTIKA AND TONOS
+            '\u0587' => "\u0535\u0552", // ARMENIAN SMALL LIGATURE ECH YIWN
+            '\u1E96' => "\u0048\u0331", // LATIN SMALL LETTER H WITH LINE BELOW
+            '\u1E97' => "\u0054\u0308", // LATIN SMALL LETTER T WITH DIAERESIS
+            '\u1E98' => "\u0057\u030A", // LATIN SMALL LETTER W WITH RING ABOVE
+            '\u1E99' => "\u0059\u030A", // LATIN SMALL LETTER Y WITH RING ABOVE
+            '\u1E9A' => "\u0041\u02BE", // LATIN SMALL LETTER A WITH RIGHT HALF RING
+            '\u1F50' => "\u03A5\u0313", // GREEK SMALL LETTER UPSILON WITH PSILI
+            '\u1F52' => "\u03A5\u0313\u0300", // GREEK SMALL LETTER UPSILON WITH PSILI AND VARIA
+            '\u1F54' => "\u03A5\u0313\u0301", // GREEK SMALL LETTER UPSILON WITH PSILI AND OXIA
+            '\u1F56' => "\u03A5\u0313\u0342", // GREEK SMALL LETTER UPSILON WITH PSILI AND PERISPOMENI
+            '\u1F80' => "\u1F08\u0399", // GREEK SMALL LETTER ALPHA WITH PSILI AND YPOGEGRAMMENI
+            '\u1F81' => "\u1F09\u0399", // GREEK SMALL LETTER ALPHA WITH DASIA AND YPOGEGRAMMENI
+            '\u1F82' => "\u1F0A\u0399", // GREEK SMALL LETTER ALPHA WITH PSILI AND VARIA AND YPOGEGRAMMENI
+            '\u1F83' => "\u1F0B\u0399", // GREEK SMALL LETTER ALPHA WITH DASIA AND VARIA AND YPOGEGRAMMENI
+            '\u1F84' => "\u1F0C\u0399", // GREEK SMALL LETTER ALPHA WITH PSILI AND OXIA AND YPOGEGRAMMENI
+            '\u1F85' => "\u1F0D\u0399", // GREEK SMALL LETTER ALPHA WITH DASIA AND OXIA AND YPOGEGRAMMENI
+            '\u1F86' => "\u1F0E\u0399", // GREEK SMALL LETTER ALPHA WITH PSILI AND PERISPOMENI AND YPOGEGRAMMENI
+            '\u1F87' => "\u1F0F\u0399", // GREEK SMALL LETTER ALPHA WITH DASIA AND PERISPOMENI AND YPOGEGRAMMENI
+            '\u1F88' => "\u1F08\u0399", // GREEK CAPITAL LETTER ALPHA WITH PSILI AND PROSGEGRAMMENI
+            '\u1F89' => "\u1F09\u0399", // GREEK CAPITAL LETTER ALPHA WITH DASIA AND PROSGEGRAMMENI
+            '\u1F8A' => "\u1F0A\u0399", // GREEK CAPITAL LETTER ALPHA WITH PSILI AND VARIA AND PROSGEGRAMMENI
+            '\u1F8B' => "\u1F0B\u0399", // GREEK CAPITAL LETTER ALPHA WITH DASIA AND VARIA AND PROSGEGRAMMENI
+            '\u1F8C' => "\u1F0C\u0399", // GREEK CAPITAL LETTER ALPHA WITH PSILI AND OXIA AND PROSGEGRAMMENI
+            '\u1F8D' => "\u1F0D\u0399", // GREEK CAPITAL LETTER ALPHA WITH DASIA AND OXIA AND PROSGEGRAMMENI
+            '\u1F8E' => "\u1F0E\u0399", // GREEK CAPITAL LETTER ALPHA WITH PSILI AND PERISPOMENI AND PROSGEGRAMMENI
+            '\u1F8F' => "\u1F0F\u0399", // GREEK CAPITAL LETTER ALPHA WITH DASIA AND PERISPOMENI AND PROSGEGRAMMENI
+            '\u1F90' => "\u1F28\u0399", // GREEK SMALL LETTER ETA WITH PSILI AND YPOGEGRAMMENI
+            '\u1F91' => "\u1F29\u0399", // GREEK SMALL LETTER ETA WITH DASIA AND YPOGEGRAMMENI
+            '\u1F92' => "\u1F2A\u0399", // GREEK SMALL LETTER ETA WITH PSILI AND VARIA AND YPOGEGRAMMENI
+            '\u1F93' => "\u1F2B\u0399", // GREEK SMALL LETTER ETA WITH DASIA AND VARIA AND YPOGEGRAMMENI
+            '\u1F94' => "\u1F2C\u0399", // GREEK SMALL LETTER ETA WITH PSILI AND OXIA AND YPOGEGRAMMENI
+            '\u1F95' => "\u1F2D\u0399", // GREEK SMALL LETTER ETA WITH DASIA AND OXIA AND YPOGEGRAMMENI
+            '\u1F96' => "\u1F2E\u0399", // GREEK SMALL LETTER ETA WITH PSILI AND PERISPOMENI AND YPOGEGRAMMENI
+            '\u1F97' => "\u1F2F\u0399", // GREEK SMALL LETTER ETA WITH DASIA AND PERISPOMENI AND YPOGEGRAMMENI
+            '\u1F98' => "\u1F28\u0399", // GREEK CAPITAL LETTER ETA WITH PSILI AND PROSGEGRAMMENI
+            '\u1F99' => "\u1F29\u0399", // GREEK CAPITAL LETTER ETA WITH DASIA AND PROSGEGRAMMENI
+            '\u1F9A' => "\u1F2A\u0399", // GREEK CAPITAL LETTER ETA WITH PSILI AND VARIA AND PROSGEGRAMMENI
+            '\u1F9B' => "\u1F2B\u0399", // GREEK CAPITAL LETTER ETA WITH DASIA AND VARIA AND PROSGEGRAMMENI
+            '\u1F9C' => "\u1F2C\u0399", // GREEK CAPITAL LETTER ETA WITH PSILI AND OXIA AND PROSGEGRAMMENI
+            '\u1F9D' => "\u1F2D\u0399", // GREEK CAPITAL LETTER ETA WITH DASIA AND OXIA AND PROSGEGRAMMENI
+            '\u1F9E' => "\u1F2E\u0399", // GREEK CAPITAL LETTER ETA WITH PSILI AND PERISPOMENI AND PROSGEGRAMMENI
+            '\u1F9F' => "\u1F2F\u0399", // GREEK CAPITAL LETTER ETA WITH DASIA AND PERISPOMENI AND PROSGEGRAMMENI
+            '\u1FA0' => "\u1F68\u0399", // GREEK SMALL LETTER OMEGA WITH PSILI AND YPOGEGRAMMENI
+            '\u1FA1' => "\u1F69\u0399", // GREEK SMALL LETTER OMEGA WITH DASIA AND YPOGEGRAMMENI
+            '\u1FA2' => "\u1F6A\u0399", // GREEK SMALL LETTER OMEGA WITH PSILI AND VARIA AND YPOGEGRAMMENI
+            '\u1FA3' => "\u1F6B\u0399", // GREEK SMALL LETTER OMEGA WITH DASIA AND VARIA AND YPOGEGRAMMENI
+            '\u1FA4' => "\u1F6C\u0399", // GREEK SMALL LETTER OMEGA WITH PSILI AND OXIA AND YPOGEGRAMMENI
+            '\u1FA5' => "\u1F6D\u0399", // GREEK SMALL LETTER OMEGA WITH DASIA AND OXIA AND YPOGEGRAMMENI
+            '\u1FA6' => "\u1F6E\u0399", // GREEK SMALL LETTER OMEGA WITH PSILI AND PERISPOMENI AND YPOGEGRAMMENI
+            '\u1FA7' => "\u1F6F\u0399", // GREEK SMALL LETTER OMEGA WITH DASIA AND PERISPOMENI AND YPOGEGRAMMENI
+            '\u1FA8' => "\u1F68\u0399", // GREEK CAPITAL LETTER OMEGA WITH PSILI AND PROSGEGRAMMENI
+            '\u1FA9' => "\u1F69\u0399", // GREEK CAPITAL LETTER OMEGA WITH DASIA AND PROSGEGRAMMENI
+            '\u1FAA' => "\u1F6A\u0399", // GREEK CAPITAL LETTER OMEGA WITH PSILI AND VARIA AND PROSGEGRAMMENI
+            '\u1FAB' => "\u1F6B\u0399", // GREEK CAPITAL LETTER OMEGA WITH DASIA AND VARIA AND PROSGEGRAMMENI
+            '\u1FAC' => "\u1F6C\u0399", // GREEK CAPITAL LETTER OMEGA WITH PSILI AND OXIA AND PROSGEGRAMMENI
+            '\u1FAD' => "\u1F6D\u0399", // GREEK CAPITAL LETTER OMEGA WITH DASIA AND OXIA AND PROSGEGRAMMENI
+            '\u1FAE' => "\u1F6E\u0399", // GREEK CAPITAL LETTER OMEGA WITH PSILI AND PERISPOMENI AND PROSGEGRAMMENI
+            '\u1FAF' => "\u1F6F\u0399", // GREEK CAPITAL LETTER OMEGA WITH DASIA AND PERISPOMENI AND PROSGEGRAMMENI
+            '\u1FB2' => "\u1FBA\u0399", // GREEK SMALL LETTER ALPHA WITH VARIA AND YPOGEGRAMMENI
+            '\u1FB3' => "\u0391\u0399", // GREEK SMALL LETTER ALPHA WITH YPOGEGRAMMENI
+            '\u1FB4' => "\u0386\u0399", // GREEK SMALL LETTER ALPHA WITH OXIA AND YPOGEGRAMMENI
+            '\u1FB6' => "\u0391\u0342", // GREEK SMALL LETTER ALPHA WITH PERISPOMENI
+            '\u1FB7' => "\u0391\u0342\u0399", // GREEK SMALL LETTER ALPHA WITH PERISPOMENI AND YPOGEGRAMMENI
+            '\u1FBC' => "\u0391\u0399", // GREEK CAPITAL LETTER ALPHA WITH PROSGEGRAMMENI
+            '\u1FC2' => "\u1FCA\u0399", // GREEK SMALL LETTER ETA WITH VARIA AND YPOGEGRAMMENI
+            '\u1FC3' => "\u0397\u0399", // GREEK SMALL LETTER ETA WITH YPOGEGRAMMENI
+            '\u1FC4' => "\u0389\u0399", // GREEK SMALL LETTER ETA WITH OXIA AND YPOGEGRAMMENI
+            '\u1FC6' => "\u0397\u0342", // GREEK SMALL LETTER ETA WITH PERISPOMENI
+            '\u1FC7' => "\u0397\u0342\u0399", // GREEK SMALL LETTER ETA WITH PERISPOMENI AND YPOGEGRAMMENI
+            '\u1FCC' => "\u0397\u0399", // GREEK CAPITAL LETTER ETA WITH PROSGEGRAMMENI
+            '\u1FD2' => "\u0399\u0308\u0300", // GREEK SMALL LETTER IOTA WITH DIALYTIKA AND VARIA
+            '\u1FD3' => "\u0399\u0308\u0301", // GREEK SMALL LETTER IOTA WITH DIALYTIKA AND OXIA
+            '\u1FD6' => "\u0399\u0342", // GREEK SMALL LETTER IOTA WITH PERISPOMENI
+            '\u1FD7' => "\u0399\u0308\u0342", // GREEK SMALL LETTER IOTA WITH DIALYTIKA AND PERISPOMENI
+            '\u1FE2' => "\u03A5\u0308\u0300", // GREEK SMALL LETTER UPSILON WITH DIALYTIKA AND VARIA
+            '\u1FE3' => "\u03A5\u0308\u0301", // GREEK SMALL LETTER UPSILON WITH DIALYTIKA AND OXIA
+            '\u1FE4' => "\u03A1\u0313", // GREEK SMALL LETTER RHO WITH PSILI
+            '\u1FE6' => "\u03A5\u0342", // GREEK SMALL LETTER UPSILON WITH PERISPOMENI
+            '\u1FE7' => "\u03A5\u0308\u0342", // GREEK SMALL LETTER UPSILON WITH DIALYTIKA AND PERISPOMENI
+            '\u1FF2' => "\u1FFA\u0399", // GREEK SMALL LETTER OMEGA WITH VARIA AND YPOGEGRAMMENI
+            '\u1FF3' => "\u03A9\u0399", // GREEK SMALL LETTER OMEGA WITH YPOGEGRAMMENI
+            '\u1FF4' => "\u038F\u0399", // GREEK SMALL LETTER OMEGA WITH OXIA AND YPOGEGRAMMENI
+            '\u1FF6' => "\u03A9\u0342", // GREEK SMALL LETTER OMEGA WITH PERISPOMENI
+            '\u1FF7' => "\u03A9\u0342\u0399", // GREEK SMALL LETTER OMEGA WITH PERISPOMENI AND YPOGEGRAMMENI
+            '\u1FFC' => "\u03A9\u0399", // GREEK CAPITAL LETTER OMEGA WITH PROSGEGRAMMENI
+            '\uFB00' => "\u0046\u0046", // LATIN SMALL LIGATURE FF
+            '\uFB01' => "\u0046\u0049", // LATIN SMALL LIGATURE FI
+            '\uFB02' => "\u0046\u004C", // LATIN SMALL LIGATURE FL
+            '\uFB03' => "\u0046\u0046\u0049", // LATIN SMALL LIGATURE FFI
+            '\uFB04' => "\u0046\u0046\u004C", // LATIN SMALL LIGATURE FFL
+            '\uFB05' => "\u0053\u0054", // LATIN SMALL LIGATURE LONG S T
+            '\uFB06' => "\u0053\u0054", // LATIN SMALL LIGATURE ST
+            '\uFB13' => "\u0544\u0546", // ARMENIAN SMALL LIGATURE MEN NOW
+            '\uFB14' => "\u0544\u0535", // ARMENIAN SMALL LIGATURE MEN ECH
+            '\uFB15' => "\u0544\u053B", // ARMENIAN SMALL LIGATURE MEN INI
+            '\uFB16' => "\u054E\u0546", // ARMENIAN SMALL LIGATURE VEW NOW
+            '\uFB17' => "\u0544\u053D", // ARMENIAN SMALL LIGATURE MEN XEH
+            _ => null
+        };
+    }
+
+    [JsFunction]
+    [RequireObjectCoercible]
     private JsValue ToLocaleLowerCase(JsValue thisObject, JsCallArguments arguments)
     {
-        TypeConverter.RequireObjectCoercible(_engine, thisObject);
         var s = TypeConverter.ToString(thisObject);
 
         // https://tc39.es/ecma402/#sup-string.prototype.tolocalelowercase
@@ -300,9 +436,10 @@ internal sealed class StringPrototype : StringInstance
         return ToLowerCaseWithSpecialCasing(s, culture);
     }
 
-    private JsValue ToLowerCase(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    [RequireObjectCoercible]
+    private static JsValue ToLowerCase(JsValue thisObject)
     {
-        TypeConverter.RequireObjectCoercible(_engine, thisObject);
         var s = TypeConverter.ToString(thisObject);
         return ToLowerCaseWithSpecialCasing(s, CultureInfo.InvariantCulture);
     }
@@ -325,7 +462,9 @@ internal sealed class StringPrototype : StringInstance
             return s.ToLower(culture);
         }
 
-        var sb = new System.Text.StringBuilder(s.Length + 4);
+        // Stack buffer covers most strings; ValueStringBuilder rents from ArrayPool if it grows beyond.
+        Span<char> stackBuffer = stackalloc char[128];
+        var sb = new ValueStringBuilder(stackBuffer);
 
         for (var i = 0; i < s.Length; i++)
         {
@@ -614,18 +753,32 @@ internal sealed class StringPrototype : StringInstance
     {
         // Check backward: must find a cased letter (skipping Case_Ignorable)
         var foundCasedBefore = false;
-        for (var i = index - 1; i >= 0; i--)
+        var i = index - 1;
+        while (i >= 0)
         {
-            var c = s[i];
-            if (IsCased(c))
+            int cp;
+            int step;
+            if (char.IsLowSurrogate(s[i]) && i - 1 >= 0 && char.IsHighSurrogate(s[i - 1]))
+            {
+                cp = char.ConvertToUtf32(s[i - 1], s[i]);
+                step = 2;
+            }
+            else
+            {
+                cp = s[i];
+                step = 1;
+            }
+
+            if (IsCased(cp))
             {
                 foundCasedBefore = true;
                 break;
             }
-            if (!IsCaseIgnorable(c))
+            if (!IsCaseIgnorable(cp))
             {
                 break;
             }
+            i -= step;
         }
 
         if (!foundCasedBefore)
@@ -634,17 +787,31 @@ internal sealed class StringPrototype : StringInstance
         }
 
         // Check forward: must NOT find a cased letter (skipping Case_Ignorable)
-        for (var i = index + 1; i < s.Length; i++)
+        var j = index + 1;
+        while (j < s.Length)
         {
-            var c = s[i];
-            if (IsCased(c))
+            int cp;
+            int step;
+            if (char.IsHighSurrogate(s[j]) && j + 1 < s.Length && char.IsLowSurrogate(s[j + 1]))
+            {
+                cp = char.ConvertToUtf32(s[j], s[j + 1]);
+                step = 2;
+            }
+            else
+            {
+                cp = s[j];
+                step = 1;
+            }
+
+            if (IsCased(cp))
             {
                 return false; // Found cased letter after, so NOT Final_Sigma
             }
-            if (!IsCaseIgnorable(c))
+            if (!IsCaseIgnorable(cp))
             {
                 break;
             }
+            j += step;
         }
 
         return true;
@@ -655,10 +822,24 @@ internal sealed class StringPrototype : StringInstance
     /// A character is cased if it has the Lowercase or Uppercase property, or has General_Category=Titlecase_Letter.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool IsCased(char c)
+    private static bool IsCased(int cp)
     {
         // Cased = Lowercase OR Uppercase OR General_Category=Lt
-        return char.IsLetter(c) && (char.IsLower(c) || char.IsUpper(c) || CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.TitlecaseLetter);
+        if (cp <= 0xFFFF)
+        {
+            var c = (char) cp;
+            return char.IsLetter(c) && (char.IsLower(c) || char.IsUpper(c) || CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.TitlecaseLetter);
+        }
+
+#if SUPPORTS_UNICODE_CATEGORY_INT
+        var category = CharUnicodeInfo.GetUnicodeCategory(cp);
+#else
+        // net462 / netstandard2.0 lack the int overload; the 2-char string allocation is unavoidable here.
+        var category = CharUnicodeInfo.GetUnicodeCategory(char.ConvertFromUtf32(cp), 0);
+#endif
+        return category is UnicodeCategory.LowercaseLetter
+            or UnicodeCategory.UppercaseLetter
+            or UnicodeCategory.TitlecaseLetter;
     }
 
     /// <summary>
@@ -667,24 +848,37 @@ internal sealed class StringPrototype : StringInstance
     /// Lm (Modifier_Letter), Sk (Modifier_Symbol), and characters with Word_Break property MidLetter, MidNumLet, or Single_Quote.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool IsCaseIgnorable(char c)
+    private static bool IsCaseIgnorable(int cp)
     {
-        var category = CharUnicodeInfo.GetUnicodeCategory(c);
+#if SUPPORTS_UNICODE_CATEGORY_INT
+        var category = CharUnicodeInfo.GetUnicodeCategory(cp);
+#else
+        // net462 / netstandard2.0 lack the int overload; supplementary-plane lookups go through a 2-char string.
+        var category = cp <= 0xFFFF
+            ? CharUnicodeInfo.GetUnicodeCategory((char) cp)
+            : CharUnicodeInfo.GetUnicodeCategory(char.ConvertFromUtf32(cp), 0);
+#endif
         return category == UnicodeCategory.NonSpacingMark ||      // Mn
                category == UnicodeCategory.EnclosingMark ||       // Me
                category == UnicodeCategory.Format ||              // Cf (includes U+180E Mongolian Vowel Separator)
                category == UnicodeCategory.ModifierLetter ||      // Lm
                category == UnicodeCategory.ModifierSymbol ||      // Sk
-               c == '\u0027' ||                                   // APOSTROPHE (Word_Break=Single_Quote)
-               c == '\u00B7' ||                                   // MIDDLE DOT (Word_Break=MidLetter)
-               c == '\u0387' ||                                   // GREEK ANO TELEIA (Word_Break=MidLetter)
-               c == '\u05F4' ||                                   // HEBREW PUNCTUATION GERSHAYIM (Word_Break=MidLetter)
-               c == '\u2019' ||                                   // RIGHT SINGLE QUOTATION MARK (Word_Break=Single_Quote)
-               c == '\u2027' ||                                   // HYPHENATION POINT (Word_Break=MidLetter)
-               c == '\uFE13' ||                                   // PRESENTATION FORM FOR VERTICAL COLON (Word_Break=MidLetter)
-               c == '\uFE55' ||                                   // SMALL COLON (Word_Break=MidLetter)
-               c == '\uFF07' ||                                   // FULLWIDTH APOSTROPHE (Word_Break=MidNumLet)
-               c == '\uFF1A';                                     // FULLWIDTH COLON (Word_Break=MidLetter)
+               cp == 0x0027 ||                                    // APOSTROPHE (Word_Break=Single_Quote)
+               cp == 0x002E ||                                    // FULL STOP (Word_Break=MidNumLet)
+               cp == 0x003A ||                                    // COLON (Word_Break=MidLetter)
+               cp == 0x00B7 ||                                    // MIDDLE DOT (Word_Break=MidLetter)
+               cp == 0x0387 ||                                    // GREEK ANO TELEIA (Word_Break=MidLetter)
+               cp == 0x05F4 ||                                    // HEBREW PUNCTUATION GERSHAYIM (Word_Break=MidLetter)
+               cp == 0x2018 ||                                    // LEFT SINGLE QUOTATION MARK (Word_Break=MidNumLet)
+               cp == 0x2019 ||                                    // RIGHT SINGLE QUOTATION MARK (Word_Break=Single_Quote)
+               cp == 0x2024 ||                                    // ONE DOT LEADER (Word_Break=MidNumLet)
+               cp == 0x2027 ||                                    // HYPHENATION POINT (Word_Break=MidLetter)
+               cp == 0xFE13 ||                                    // PRESENTATION FORM FOR VERTICAL COLON (Word_Break=MidLetter)
+               cp == 0xFE52 ||                                    // SMALL FULL STOP (Word_Break=MidNumLet)
+               cp == 0xFE55 ||                                    // SMALL COLON (Word_Break=MidLetter)
+               cp == 0xFF07 ||                                    // FULLWIDTH APOSTROPHE (Word_Break=MidNumLet)
+               cp == 0xFF0E ||                                    // FULLWIDTH FULL STOP (Word_Break=MidNumLet)
+               cp == 0xFF1A;                                      // FULLWIDTH COLON (Word_Break=MidLetter)
     }
 
     private static int ToIntegerSupportInfinity(JsValue numberVal)
@@ -708,10 +902,10 @@ internal sealed class StringPrototype : StringInstance
         return intVal;
     }
 
-    private JsValue Substring(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Length = 2)]
+    [RequireObjectCoercible]
+    private static JsValue Substring(JsValue thisObject, JsCallArguments arguments)
     {
-        TypeConverter.RequireObjectCoercible(Engine, thisObject);
-
         var s = TypeConverter.ToString(thisObject);
         var start = TypeConverter.ToNumber(arguments.At(0));
         var end = TypeConverter.ToNumber(arguments.At(1));
@@ -753,9 +947,10 @@ internal sealed class StringPrototype : StringInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-string.prototype.substr
     /// </summary>
-    private JsValue Substr(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Length = 2)]
+    [RequireObjectCoercible]
+    private static JsValue Substr(JsValue thisObject, JsCallArguments arguments)
     {
-        TypeConverter.RequireObjectCoercible(_engine, thisObject);
         var s = TypeConverter.ToString(thisObject);
         var start = TypeConverter.ToInteger(arguments.At(0));
         var length = arguments.At(1).IsUndefined()
@@ -796,52 +991,65 @@ internal sealed class StringPrototype : StringInstance
         return p1 + ">" + s + "</" + tag + ">";
     }
 
+    [JsFunction(Length = 1)]
     private JsValue Anchor(JsValue thisObject, JsCallArguments arguments)
         => CreateHTML(_engine, thisObject, "a", "name", arguments.At(0));
 
+    [JsFunction]
     private JsValue Big(JsValue thisObject, JsCallArguments arguments)
         => CreateHTML(_engine, thisObject, "big", "", Undefined);
 
+    [JsFunction]
     private JsValue Blink(JsValue thisObject, JsCallArguments arguments)
         => CreateHTML(_engine, thisObject, "blink", "", Undefined);
 
+    [JsFunction]
     private JsValue Bold(JsValue thisObject, JsCallArguments arguments)
         => CreateHTML(_engine, thisObject, "b", "", Undefined);
 
+    [JsFunction]
     private JsValue Fixed(JsValue thisObject, JsCallArguments arguments)
         => CreateHTML(_engine, thisObject, "tt", "", Undefined);
 
+    [JsFunction(Length = 1, Name = "fontcolor")]
     private JsValue FontColor(JsValue thisObject, JsCallArguments arguments)
         => CreateHTML(_engine, thisObject, "font", "color", arguments.At(0));
 
+    [JsFunction(Length = 1, Name = "fontsize")]
     private JsValue FontSize(JsValue thisObject, JsCallArguments arguments)
         => CreateHTML(_engine, thisObject, "font", "size", arguments.At(0));
 
+    [JsFunction]
     private JsValue Italics(JsValue thisObject, JsCallArguments arguments)
         => CreateHTML(_engine, thisObject, "i", "", Undefined);
 
+    [JsFunction(Length = 1)]
     private JsValue Link(JsValue thisObject, JsCallArguments arguments)
         => CreateHTML(_engine, thisObject, "a", "href", arguments.At(0));
 
+    [JsFunction]
     private JsValue Small(JsValue thisObject, JsCallArguments arguments)
         => CreateHTML(_engine, thisObject, "small", "", Undefined);
 
+    [JsFunction]
     private JsValue Strike(JsValue thisObject, JsCallArguments arguments)
         => CreateHTML(_engine, thisObject, "strike", "", Undefined);
 
+    [JsFunction]
     private JsValue Sub(JsValue thisObject, JsCallArguments arguments)
         => CreateHTML(_engine, thisObject, "sub", "", Undefined);
 
+    [JsFunction]
     private JsValue Sup(JsValue thisObject, JsCallArguments arguments)
         => CreateHTML(_engine, thisObject, "sup", "", Undefined);
 
     /// <summary>
     /// https://tc39.es/ecma262/#sec-string.prototype.split
     /// </summary>
+    [JsFunction(Length = 2)]
+    [RequireObjectCoercible]
     private JsValue Split(JsValue thisObject, JsCallArguments arguments)
     {
-        TypeConverter.RequireObjectCoercible(Engine, thisObject);
-
         var separator = arguments.At(0);
         var limit = arguments.At(1);
 
@@ -933,9 +1141,10 @@ internal sealed class StringPrototype : StringInstance
     /// <summary>
     /// https://tc39.es/proposal-relative-indexing-method/#sec-string-prototype-additions
     /// </summary>
-    private JsValue At(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Length = 1)]
+    [RequireObjectCoercible]
+    private static JsValue At(JsValue thisObject, JsCallArguments arguments)
     {
-        TypeConverter.RequireObjectCoercible(_engine, thisObject);
         var start = arguments.At(0);
 
         var o = thisObject.ToString();
@@ -961,10 +1170,10 @@ internal sealed class StringPrototype : StringInstance
         return o[k];
     }
 
-    private JsValue Slice(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Length = 2)]
+    [RequireObjectCoercible]
+    private static JsValue Slice(JsValue thisObject, JsCallArguments arguments)
     {
-        TypeConverter.RequireObjectCoercible(Engine, thisObject);
-
         var start = TypeConverter.ToNumber(arguments.At(0));
         if (double.IsNegativeInfinity(start))
         {
@@ -1002,9 +1211,10 @@ internal sealed class StringPrototype : StringInstance
         return s.Substring(from, span);
     }
 
+    [JsFunction(Length = 1)]
+    [RequireObjectCoercible]
     private JsValue Search(JsValue thisObject, JsCallArguments arguments)
     {
-        TypeConverter.RequireObjectCoercible(Engine, thisObject);
         var regex = arguments.At(0);
 
         if (regex is ObjectInstance oi)
@@ -1024,10 +1234,10 @@ internal sealed class StringPrototype : StringInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-string.prototype.replace
     /// </summary>
+    [JsFunction(Length = 2)]
+    [RequireObjectCoercible]
     private JsValue Replace(JsValue thisObject, JsCallArguments arguments)
     {
-        TypeConverter.RequireObjectCoercible(Engine, thisObject);
-
         var searchValue = arguments.At(0);
         var replaceValue = arguments.At(1);
 
@@ -1078,10 +1288,10 @@ internal sealed class StringPrototype : StringInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-string.prototype.replaceall
     /// </summary>
+    [JsFunction(Length = 2)]
+    [RequireObjectCoercible]
     private JsValue ReplaceAll(JsValue thisObject, JsCallArguments arguments)
     {
-        TypeConverter.RequireObjectCoercible(Engine, thisObject);
-
         var searchValue = arguments.At(0);
         var replaceValue = arguments.At(1);
 
@@ -1175,10 +1385,10 @@ internal sealed class StringPrototype : StringInstance
         return result.ToString();
     }
 
+    [JsFunction(Length = 1)]
+    [RequireObjectCoercible]
     private JsValue Match(JsValue thisObject, JsCallArguments arguments)
     {
-        TypeConverter.RequireObjectCoercible(Engine, thisObject);
-
         var regex = arguments.At(0);
         if (regex is ObjectInstance oi)
         {
@@ -1195,10 +1405,10 @@ internal sealed class StringPrototype : StringInstance
         return _engine.Invoke(rx, GlobalSymbolRegistry.Match, [s]);
     }
 
+    [JsFunction(Length = 1)]
+    [RequireObjectCoercible]
     private JsValue MatchAll(JsValue thisObject, JsCallArguments arguments)
     {
-        TypeConverter.RequireObjectCoercible(_engine, thisObject);
-
         var regex = arguments.At(0);
         // 2. If regexp is neither undefined nor null, then
         // Note: spec requires checking if regexp IS an object, not just not-null/undefined
@@ -1230,10 +1440,10 @@ internal sealed class StringPrototype : StringInstance
     /// https://tc39.es/ecma262/#sec-string.prototype.localecompare
     /// https://tc39.es/ecma402/#sup-string.prototype.localecompare
     /// </summary>
+    [JsFunction(Length = 1)]
+    [RequireObjectCoercible]
     private JsValue LocaleCompare(JsValue thisObject, JsCallArguments arguments)
     {
-        TypeConverter.RequireObjectCoercible(Engine, thisObject);
-
         var s = TypeConverter.ToString(thisObject);
         var that = TypeConverter.ToString(arguments.At(0));
         var locales = arguments.At(1);
@@ -1247,10 +1457,10 @@ internal sealed class StringPrototype : StringInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-string.prototype.lastindexof
     /// </summary>
-    private JsValue LastIndexOf(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Length = 1)]
+    [RequireObjectCoercible]
+    private static JsValue LastIndexOf(JsValue thisObject, JsCallArguments arguments)
     {
-        TypeConverter.RequireObjectCoercible(Engine, thisObject);
-
         var jsString = TypeConverter.ToJsString(thisObject);
         var searchStr = TypeConverter.ToString(arguments.At(0));
         double numPos = double.NaN;
@@ -1303,10 +1513,10 @@ internal sealed class StringPrototype : StringInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-string.prototype.indexof
     /// </summary>
-    private JsValue IndexOf(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Length = 1)]
+    [RequireObjectCoercible]
+    private static JsValue IndexOf(JsValue thisObject, JsCallArguments arguments)
     {
-        TypeConverter.RequireObjectCoercible(Engine, thisObject);
-
         var s = TypeConverter.ToJsString(thisObject);
         var searchStr = TypeConverter.ToString(arguments.At(0));
         double pos = 0;
@@ -1328,10 +1538,10 @@ internal sealed class StringPrototype : StringInstance
         return s.IndexOf(searchStr, (int) pos);
     }
 
-    private JsValue Concat(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Length = 1)]
+    [RequireObjectCoercible]
+    private static JsValue Concat(JsValue thisObject, JsCallArguments arguments)
     {
-        TypeConverter.RequireObjectCoercible(Engine, thisObject);
-
         if (thisObject is not JsString jsString)
         {
             jsString = new JsString.ConcatenatedString(TypeConverter.ToString(thisObject));
@@ -1349,10 +1559,10 @@ internal sealed class StringPrototype : StringInstance
         return jsString;
     }
 
-    private JsValue CharCodeAt(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Length = 1)]
+    [RequireObjectCoercible]
+    private static JsValue CharCodeAt(JsValue thisObject, JsCallArguments arguments)
     {
-        TypeConverter.RequireObjectCoercible(Engine, thisObject);
-
         JsValue pos = arguments.Length > 0 ? arguments[0] : 0;
         var s = TypeConverter.ToJsString(thisObject);
         var position = (int) TypeConverter.ToInteger(pos);
@@ -1366,10 +1576,10 @@ internal sealed class StringPrototype : StringInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-string.prototype.codepointat
     /// </summary>
-    private JsValue CodePointAt(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Length = 1)]
+    [RequireObjectCoercible]
+    private static JsValue CodePointAt(JsValue thisObject, JsCallArguments arguments)
     {
-        TypeConverter.RequireObjectCoercible(Engine, thisObject);
-
         JsValue pos = arguments.Length > 0 ? arguments[0] : 0;
         var s = TypeConverter.ToString(thisObject);
         var position = (int) TypeConverter.ToInteger(pos);
@@ -1411,9 +1621,10 @@ internal sealed class StringPrototype : StringInstance
         return new CodePointResult(char.ConvertToUtf32(first, second), 2, false);
     }
 
-    private JsValue CharAt(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Length = 1)]
+    [RequireObjectCoercible]
+    private static JsValue CharAt(JsValue thisObject, JsCallArguments arguments)
     {
-        TypeConverter.RequireObjectCoercible(Engine, thisObject);
         var s = TypeConverter.ToJsString(thisObject);
         var position = TypeConverter.ToInteger(arguments.At(0));
         var size = s.Length;
@@ -1424,7 +1635,8 @@ internal sealed class StringPrototype : StringInstance
         return JsString.Create(s[(int) position]);
     }
 
-    private JsValue ValueOf(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsValue ValueOf(JsValue thisObject)
     {
         if (thisObject is StringInstance si)
         {
@@ -1443,7 +1655,9 @@ internal sealed class StringPrototype : StringInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-string.prototype.padstart
     /// </summary>
-    private JsValue PadStart(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Length = 1)]
+    [RequireObjectCoercible]
+    private static JsValue PadStart(JsValue thisObject, JsCallArguments arguments)
     {
         return StringPad(thisObject, arguments, true);
     }
@@ -1451,7 +1665,9 @@ internal sealed class StringPrototype : StringInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-string.prototype.padend
     /// </summary>
-    private JsValue PadEnd(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Length = 1)]
+    [RequireObjectCoercible]
+    private static JsValue PadEnd(JsValue thisObject, JsCallArguments arguments)
     {
         return StringPad(thisObject, arguments, false);
     }
@@ -1459,9 +1675,8 @@ internal sealed class StringPrototype : StringInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-stringpad
     /// </summary>
-    private JsValue StringPad(JsValue thisObject, JsCallArguments arguments, bool padStart)
+    private static JsValue StringPad(JsValue thisObject, JsCallArguments arguments, bool padStart)
     {
-        TypeConverter.RequireObjectCoercible(Engine, thisObject);
         var s = TypeConverter.ToJsString(thisObject);
 
         var targetLength = TypeConverter.ToInt32(arguments.At(0));
@@ -1490,10 +1705,10 @@ internal sealed class StringPrototype : StringInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-string.prototype.startswith
     /// </summary>
+    [JsFunction(Length = 1)]
+    [RequireObjectCoercible]
     private JsValue StartsWith(JsValue thisObject, JsCallArguments arguments)
     {
-        TypeConverter.RequireObjectCoercible(Engine, thisObject);
-
         var s = TypeConverter.ToJsString(thisObject);
 
         var searchString = arguments.At(0);
@@ -1522,10 +1737,10 @@ internal sealed class StringPrototype : StringInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-string.prototype.endswith
     /// </summary>
+    [JsFunction(Length = 1)]
+    [RequireObjectCoercible]
     private JsValue EndsWith(JsValue thisObject, JsCallArguments arguments)
     {
-        TypeConverter.RequireObjectCoercible(Engine, thisObject);
-
         var s = TypeConverter.ToJsString(thisObject);
 
         var searchString = arguments.At(0);
@@ -1553,10 +1768,10 @@ internal sealed class StringPrototype : StringInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-string.prototype.includes
     /// </summary>
+    [JsFunction(Length = 1)]
+    [RequireObjectCoercible]
     private JsValue Includes(JsValue thisObject, JsCallArguments arguments)
     {
-        TypeConverter.RequireObjectCoercible(Engine, thisObject);
-
         var s = TypeConverter.ToJsString(thisObject);
         var searchString = arguments.At(0);
 
@@ -1585,9 +1800,10 @@ internal sealed class StringPrototype : StringInstance
         return s.IndexOf(searchStr, (int) pos) > -1;
     }
 
+    [JsFunction]
+    [RequireObjectCoercible]
     private JsValue Normalize(JsValue thisObject, JsCallArguments arguments)
     {
-        TypeConverter.RequireObjectCoercible(Engine, thisObject);
         var str = TypeConverter.ToString(thisObject);
 
         var param = arguments.At(0);
@@ -1626,9 +1842,10 @@ internal sealed class StringPrototype : StringInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-string.prototype.repeat
     /// </summary>
+    [JsFunction(Length = 1)]
+    [RequireObjectCoercible]
     private JsValue Repeat(JsValue thisObject, JsCallArguments arguments)
     {
-        TypeConverter.RequireObjectCoercible(Engine, thisObject);
         var s = TypeConverter.ToString(thisObject);
         var count = arguments.At(0);
 
@@ -1644,12 +1861,18 @@ internal sealed class StringPrototype : StringInstance
             return JsString.Empty;
         }
 
+        var resultLength = n * s.Length;
+        if (resultLength > ClrLimits.MaxArrayLength)
+        {
+            Throw.RangeError(_realm, "Invalid string length");
+        }
+
         if (s.Length == 1)
         {
             return new string(s[0], (int) n);
         }
 
-        var sb = new ValueStringBuilder((int) (n * s.Length));
+        var sb = new ValueStringBuilder((int) resultLength);
         for (var i = 0; i < n; ++i)
         {
             sb.Append(s);
@@ -1658,17 +1881,19 @@ internal sealed class StringPrototype : StringInstance
         return sb.ToString();
     }
 
-    private JsValue IsWellFormed(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    [RequireObjectCoercible]
+    private static JsValue IsWellFormed(JsValue thisObject)
     {
-        TypeConverter.RequireObjectCoercible(_engine, thisObject);
         var s = TypeConverter.ToString(thisObject);
 
         return IsStringWellFormedUnicode(s);
     }
 
-    private JsValue ToWellFormed(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    [RequireObjectCoercible]
+    private static JsValue ToWellFormed(JsValue thisObject)
     {
-        TypeConverter.RequireObjectCoercible(_engine, thisObject);
         var s = TypeConverter.ToString(thisObject);
 
         var strLen = s.Length;

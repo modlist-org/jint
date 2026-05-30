@@ -1,53 +1,46 @@
 using Jint.Native.Iterator;
 using Jint.Native.Object;
 using Jint.Native.Promise;
-using Jint.Native.Symbol;
 using Jint.Runtime;
 using Jint.Runtime.Descriptors;
-using Jint.Runtime.Interop;
 
 namespace Jint.Native.AsyncGenerator;
 
 /// <summary>
 /// https://tc39.es/ecma262/#sec-asyncgenerator-prototype-object
 /// </summary>
-internal sealed class AsyncGeneratorPrototype : ObjectInstance
+[JsObject]
+internal sealed partial class AsyncGeneratorPrototype : ObjectInstance
 {
+    private readonly Realm _realm;
+
+    [JsProperty(Name = "constructor", Flags = PropertyFlag.Configurable)]
     private readonly AsyncGeneratorFunctionPrototype _constructor;
+
+    [JsSymbol("ToStringTag", Flags = PropertyFlag.Configurable)] private static readonly JsString AsyncGeneratorToStringTag = new("AsyncGenerator");
 
     internal AsyncGeneratorPrototype(
         Engine engine,
+        Realm realm,
         AsyncGeneratorFunctionPrototype constructor,
         AsyncIteratorPrototype asyncIteratorPrototype) : base(engine)
     {
+        _realm = realm;
         _constructor = constructor;
         _prototype = asyncIteratorPrototype;
     }
 
     protected override void Initialize()
     {
-        const PropertyFlag PropertyFlags = PropertyFlag.Configurable | PropertyFlag.Writable;
-        const PropertyFlag LengthFlags = PropertyFlag.Configurable;
-        var properties = new PropertyDictionary(4, checkExistingKeys: false)
-        {
-            [KnownKeys.Constructor] = new(_constructor, PropertyFlag.Configurable),
-            [KnownKeys.Next] = new(new ClrFunction(Engine, "next", Next, 1, LengthFlags), PropertyFlags),
-            [KnownKeys.Return] = new(new ClrFunction(Engine, "return", Return, 1, LengthFlags), PropertyFlags),
-            [KnownKeys.Throw] = new(new ClrFunction(Engine, "throw", Throw, 1, LengthFlags), PropertyFlags)
-        };
-        SetProperties(properties);
-
-        var symbols = new SymbolDictionary(1)
-        {
-            [GlobalSymbolRegistry.ToStringTag] = new("AsyncGenerator", PropertyFlag.Configurable)
-        };
-        SetSymbols(symbols);
+        CreateProperties_Generated();
+        CreateSymbols_Generated();
     }
 
     /// <summary>
     /// https://tc39.es/ecma262/#sec-asyncgenerator-prototype-next
     /// </summary>
-    private JsValue Next(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsValue Next(JsValue thisObject, JsValue value)
     {
         // Per spec: If generator is not valid, return a rejected promise
         if (!TryGetAsyncGeneratorInstance(thisObject, out var g))
@@ -55,7 +48,6 @@ internal sealed class AsyncGeneratorPrototype : ObjectInstance
             return CreateRejectedPromiseWithTypeError("object must be an AsyncGenerator instance");
         }
 
-        var value = arguments.At(0);
         var completion = new Completion(CompletionType.Normal, value, null!);
         return g.AsyncGeneratorEnqueue(completion);
     }
@@ -63,7 +55,8 @@ internal sealed class AsyncGeneratorPrototype : ObjectInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-asyncgenerator-prototype-return
     /// </summary>
-    private JsValue Return(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsValue Return(JsValue thisObject, JsValue value)
     {
         // Per spec: If generator is not valid, return a rejected promise
         if (!TryGetAsyncGeneratorInstance(thisObject, out var g))
@@ -71,7 +64,6 @@ internal sealed class AsyncGeneratorPrototype : ObjectInstance
             return CreateRejectedPromiseWithTypeError("object must be an AsyncGenerator instance");
         }
 
-        var value = arguments.At(0);
         var completion = new Completion(CompletionType.Return, value, null!);
         return g.AsyncGeneratorEnqueue(completion);
     }
@@ -79,7 +71,8 @@ internal sealed class AsyncGeneratorPrototype : ObjectInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-asyncgenerator-prototype-throw
     /// </summary>
-    private JsValue Throw(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsValue Throw(JsValue thisObject, JsValue exception)
     {
         // Per spec: If generator is not valid, return a rejected promise
         if (!TryGetAsyncGeneratorInstance(thisObject, out var g))
@@ -87,7 +80,6 @@ internal sealed class AsyncGeneratorPrototype : ObjectInstance
             return CreateRejectedPromiseWithTypeError("object must be an AsyncGenerator instance");
         }
 
-        var exception = arguments.At(0);
         var completion = new Completion(CompletionType.Throw, exception, null!);
         return g.AsyncGeneratorEnqueue(completion);
     }
@@ -104,8 +96,8 @@ internal sealed class AsyncGeneratorPrototype : ObjectInstance
     /// </summary>
     private JsValue CreateRejectedPromiseWithTypeError(string message)
     {
-        var promiseCapability = PromiseConstructor.NewPromiseCapability(_engine, _engine.Realm.Intrinsics.Promise);
-        var error = _engine.Realm.Intrinsics.TypeError.Construct(message);
+        var promiseCapability = PromiseConstructor.NewPromiseCapability(_engine, _realm.Intrinsics.Promise);
+        var error = _realm.Intrinsics.TypeError.Construct(message);
         promiseCapability.Reject.Call(Undefined, new[] { error });
         return promiseCapability.PromiseInstance;
     }

@@ -1,17 +1,22 @@
+#pragma warning disable CA1859 // Use concrete types when possible for improved performance -- most of prototype methods return JsValue
+
 using Jint.Native.Object;
 using Jint.Native.Symbol;
 using Jint.Runtime;
 using Jint.Runtime.Descriptors;
-using Jint.Runtime.Interop;
 
 namespace Jint.Native.Set;
 
 /// <summary>
 /// https://www.ecma-international.org/ecma-262/6.0/#sec-set-objects
 /// </summary>
-internal sealed class SetPrototype : Prototype
+[JsObject]
+internal sealed partial class SetPrototype : Prototype
 {
+    [JsProperty(Name = "constructor", Flags = PropertyFlag.NonEnumerable)]
     private readonly SetConstructor _constructor;
+
+    [JsSymbol("ToStringTag", Flags = PropertyFlag.Configurable)] private static readonly JsString SetToStringTag = new("Set");
 
     internal SetPrototype(
         Engine engine,
@@ -25,47 +30,28 @@ internal sealed class SetPrototype : Prototype
 
     protected override void Initialize()
     {
-        var properties = new PropertyDictionary(12, checkExistingKeys: false)
-        {
-            ["length"] = new(0, PropertyFlag.Configurable),
-            ["constructor"] = new(_constructor, PropertyFlag.NonEnumerable),
-            ["add"] = new(new ClrFunction(Engine, "add", Add, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["clear"] = new(new ClrFunction(Engine, "clear", Clear, 0, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["delete"] = new(new ClrFunction(Engine, "delete", Delete, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["difference"] = new(new ClrFunction(Engine, "difference", Difference, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["entries"] = new(new ClrFunction(Engine, "entries", Entries, 0, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["forEach"] = new(new ClrFunction(Engine, "forEach", ForEach, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["has"] = new(new ClrFunction(Engine, "has", Has, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["intersection"] = new(new ClrFunction(Engine, "intersection", Intersection, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["isDisjointFrom"] = new(new ClrFunction(Engine, "isDisjointFrom", IsDisjointFrom, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["isSubsetOf"] = new(new ClrFunction(Engine, "isSubsetOf", IsSubsetOf, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["isSupersetOf"] = new(new ClrFunction(Engine, "isSupersetOf", IsSupersetOf, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["keys"] = new(new ClrFunction(Engine, "keys", Values, 0, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["values"] = new(new ClrFunction(Engine, "values", Values, 0, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["size"] = new GetSetPropertyDescriptor(get: new ClrFunction(Engine, "get size", Size, 0, PropertyFlag.Configurable), set: null, PropertyFlag.Configurable),
-            ["symmetricDifference"] = new(new ClrFunction(Engine, "symmetricDifference", SymmetricDifference, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable),
-            ["union"] = new(new ClrFunction(Engine, "union", Union, 1, PropertyFlag.Configurable), PropertyFlag.NonEnumerable)
-        };
-        SetProperties(properties);
+        CreateProperties_Generated();
+        CreateSymbols_Generated();
 
-        var symbols = new SymbolDictionary(2)
-        {
-            [GlobalSymbolRegistry.Iterator] = new(new ClrFunction(Engine, "iterator", Values, 1, PropertyFlag.Configurable), true, false, true),
-            [GlobalSymbolRegistry.ToStringTag] = new("Set", false, false, true)
-        };
-        SetSymbols(symbols);
+        // Spec requires Set.prototype.keys, Set.prototype.values, and Set.prototype[@@iterator] to all be
+        // the same function object (function identity, observable via ===). Alias the descriptors here
+        // so they share the same materialized function as `values` rather than emitting separate dispatchers.
+        var valuesDesc = GetOwnProperty("values");
+        SetProperty("keys", valuesDesc);
+        SetProperty(GlobalSymbolRegistry.Iterator, valuesDesc);
     }
 
-    private JsNumber Size(JsValue thisObject, JsCallArguments arguments)
+    [JsAccessor("size")]
+    private JsNumber Size(JsValue thisObject)
     {
         AssertSetInstance(thisObject);
         return JsNumber.Create(0);
     }
 
-    private JsValue Add(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsValue Add(JsValue thisObject, JsValue value)
     {
         var set = AssertSetInstance(thisObject);
-        var value = arguments.At(0);
         if (value is JsNumber number && number.IsNegativeZero())
         {
             value = JsNumber.PositiveZero;
@@ -74,25 +60,27 @@ internal sealed class SetPrototype : Prototype
         return thisObject;
     }
 
-    private JsValue Clear(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsValue Clear(JsValue thisObject)
     {
         var set = AssertSetInstance(thisObject);
         set.Clear();
         return Undefined;
     }
 
-    private JsBoolean Delete(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsBoolean Delete(JsValue thisObject, JsValue value)
     {
         var set = AssertSetInstance(thisObject);
-        return set.Delete(arguments.At(0))
+        return set.Delete(value)
             ? JsBoolean.True
             : JsBoolean.False;
     }
 
-    private JsSet Difference(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsSet Difference(JsValue thisObject, JsValue other)
     {
         var set = AssertSetInstance(thisObject);
-        var other = arguments.At(0);
         var otherRec = GetSetRecord(other);
         var resultSetData = new JsSet(_engine, new OrderedSet<JsValue>(set._set._set));
 
@@ -149,10 +137,10 @@ internal sealed class SetPrototype : Prototype
         return resultSetData;
     }
 
-    private JsBoolean IsDisjointFrom(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsBoolean IsDisjointFrom(JsValue thisObject, JsValue other)
     {
         var set = AssertSetInstance(thisObject);
-        var other = arguments.At(0);
         var otherRec = GetSetRecord(other);
 
         if (set.Size <= otherRec.Size)
@@ -203,10 +191,10 @@ internal sealed class SetPrototype : Prototype
     }
 
 
-    private JsSet Intersection(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsSet Intersection(JsValue thisObject, JsValue other)
     {
         var set = AssertSetInstance(thisObject);
-        var other = arguments.At(0);
 
         var otherRec = GetSetRecord(other);
         var resultSetData = new JsSet(_engine);
@@ -272,10 +260,10 @@ internal sealed class SetPrototype : Prototype
         return resultSetData;
     }
 
-    private JsSet SymmetricDifference(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsSet SymmetricDifference(JsValue thisObject, JsValue other)
     {
         var set = AssertSetInstance(thisObject);
-        var other = arguments.At(0);
 
         if (other is JsSet otherSet)
         {
@@ -321,10 +309,10 @@ internal sealed class SetPrototype : Prototype
         return resultSetData;
     }
 
-    private JsBoolean IsSubsetOf(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsBoolean IsSubsetOf(JsValue thisObject, JsValue other)
     {
         var set = AssertSetInstance(thisObject);
-        var other = arguments.At(0);
 
         if (other is JsSet otherSet)
         {
@@ -362,10 +350,10 @@ internal sealed class SetPrototype : Prototype
         return JsBoolean.True;
     }
 
-    private JsBoolean IsSupersetOf(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsBoolean IsSupersetOf(JsValue thisObject, JsValue other)
     {
         var set = AssertSetInstance(thisObject);
-        var other = arguments.At(0);
 
         if (other is JsSet otherSet)
         {
@@ -401,25 +389,25 @@ internal sealed class SetPrototype : Prototype
     }
 
 
-    private JsBoolean Has(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsBoolean Has(JsValue thisObject, JsValue value)
     {
         var set = AssertSetInstance(thisObject);
-        return set.Has(arguments.At(0))
+        return set.Has(value)
             ? JsBoolean.True
             : JsBoolean.False;
     }
 
-    private ObjectInstance Entries(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private ObjectInstance Entries(JsValue thisObject)
     {
         var set = AssertSetInstance(thisObject);
         return set.Entries();
     }
 
-    private JsValue ForEach(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Length = 1)]
+    private JsValue ForEach(JsValue thisObject, JsValue callbackfn, JsValue thisArg)
     {
-        var callbackfn = arguments.At(0);
-        var thisArg = arguments.At(1);
-
         var set = AssertSetInstance(thisObject);
         var callable = GetCallable(callbackfn);
 
@@ -428,10 +416,10 @@ internal sealed class SetPrototype : Prototype
         return Undefined;
     }
 
-    private JsSet Union(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsSet Union(JsValue thisObject, JsValue other)
     {
         var set = AssertSetInstance(thisObject);
-        var other = arguments.At(0);
         var otherRec = GetSetRecord(other);
         var keysIter = otherRec.Set.GetIteratorFromMethod(_realm, otherRec.Keys);
         var resultSetData = set._set.Clone();
@@ -486,7 +474,8 @@ internal sealed class SetPrototype : Prototype
         return new SetRecord(Set: obj, Size: intSize, Has: (ICallable) has, Keys: (ICallable) keys);
     }
 
-    private ObjectInstance Values(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private ObjectInstance Values(JsValue thisObject)
     {
         var set = AssertSetInstance(thisObject);
         return set.Values();

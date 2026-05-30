@@ -1,65 +1,57 @@
-﻿using Jint.Native.Iterator;
+using Jint.Native.Iterator;
 using Jint.Native.Object;
-using Jint.Native.Symbol;
 using Jint.Runtime;
 using Jint.Runtime.Descriptors;
-using Jint.Runtime.Interop;
 
 namespace Jint.Native.Generator;
 
 /// <summary>
 /// https://tc39.es/ecma262/#sec-generator-objects
 /// </summary>
-internal sealed class GeneratorPrototype : ObjectInstance
+[JsObject]
+internal sealed partial class GeneratorPrototype : ObjectInstance
 {
+    private readonly Realm _realm;
+
+    [JsProperty(Name = "constructor", Flags = PropertyFlag.Configurable)]
     private readonly GeneratorFunctionPrototype _constructor;
+
+    [JsSymbol("ToStringTag", Flags = PropertyFlag.Configurable)] private static readonly JsString GeneratorToStringTag = new("Generator");
 
     internal GeneratorPrototype(
         Engine engine,
+        Realm realm,
         GeneratorFunctionPrototype constructor,
         IteratorPrototype iteratorPrototype) : base(engine)
     {
+        _realm = realm;
         _constructor = constructor;
         _prototype = iteratorPrototype;
     }
 
     protected override void Initialize()
     {
-        const PropertyFlag PropertyFlags = PropertyFlag.Configurable | PropertyFlag.Writable;
-        const PropertyFlag LengthFlags = PropertyFlag.Configurable;
-        var properties = new PropertyDictionary(4, checkExistingKeys: false)
-        {
-            [KnownKeys.Constructor] = new(_constructor, PropertyFlag.Configurable),
-            [KnownKeys.Next] = new(new ClrFunction(Engine, "next", Next, 1, LengthFlags), PropertyFlags),
-            [KnownKeys.Return] = new(new ClrFunction(Engine, "return", Return, 1, LengthFlags), PropertyFlags),
-            [KnownKeys.Throw] = new(new ClrFunction(Engine, "throw", Throw, 1, LengthFlags), PropertyFlags)
-        };
-        SetProperties(properties);
-
-        var symbols = new SymbolDictionary(1)
-        {
-            [GlobalSymbolRegistry.ToStringTag] = new("Generator", PropertyFlag.Configurable)
-        };
-        SetSymbols(symbols);
+        CreateProperties_Generated();
+        CreateSymbols_Generated();
     }
 
     /// <summary>
     /// https://tc39.es/ecma262/#sec-generator.prototype.next
     /// </summary>
-    private ObjectInstance Next(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private ObjectInstance Next(JsValue thisObject, JsValue value)
     {
         var g = AssertGeneratorInstance(thisObject);
-        var value = arguments.At(0, null!);
         return g.GeneratorResume(value, null);
     }
 
     /// <summary>
     /// https://tc39.es/ecma262/#sec-generator.prototype.return
     /// </summary>
-    private JsValue Return(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsValue Return(JsValue thisObject, JsValue value)
     {
         var g = AssertGeneratorInstance(thisObject);
-        var value = arguments.At(0);
         var C = new Completion(CompletionType.Return, value, null!);
         return g.GeneratorResumeAbrupt(C, null);
     }
@@ -67,10 +59,10 @@ internal sealed class GeneratorPrototype : ObjectInstance
     /// <summary>
     /// https://tc39.es/ecma262/#sec-generator.prototype.throw
     /// </summary>
-    private JsValue Throw(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsValue Throw(JsValue thisObject, JsValue exception)
     {
         var g = AssertGeneratorInstance(thisObject);
-        var exception = arguments.At(0);
         var C = new Completion(CompletionType.Throw, exception, null!);
         return g.GeneratorResumeAbrupt(C, null);
     }
@@ -80,7 +72,7 @@ internal sealed class GeneratorPrototype : ObjectInstance
         var generatorInstance = thisObj as GeneratorInstance;
         if (generatorInstance is null)
         {
-            Runtime.Throw.TypeError(_engine.Realm, "object must be a Generator instance");
+            Runtime.Throw.TypeError(_realm, "object must be a Generator instance");
         }
 
         return generatorInstance;

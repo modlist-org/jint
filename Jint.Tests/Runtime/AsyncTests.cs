@@ -18,6 +18,677 @@ public class AsyncTests
     }
 
     [Fact]
+    public void ShouldResumeAwaitInsideCatchWithoutReexecutingTryBlock()
+    {
+        var engine = new Engine();
+
+        var result = engine.Evaluate("""
+            (async () => {
+                let tries = 0;
+                try {
+                    tries++;
+                    await Promise.reject(new Error("boom"));
+                } catch (e) {
+                    await Promise.resolve();
+                    return tries;
+                }
+            })()
+            """).UnwrapIfPromise(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(1, result.AsNumber());
+    }
+
+    [Fact]
+    public void ShouldNotLeakCatchBindingAfterAwaitInsideCatch()
+    {
+        var result = EvaluateAsyncJson("""
+            try {
+                throw 1;
+            } catch (e) {
+                await Promise.resolve();
+            }
+
+            try {
+                return { leaked: true, value: e };
+            } catch (err) {
+                return { leaked: false, name: err.name };
+            }
+            """);
+
+        Assert.Equal("""{"leaked":false,"name":"ReferenceError"}""", result);
+    }
+
+    [Fact]
+    public void ShouldPreserveCatchBindingAfterAwaitInsideCatch()
+    {
+        var result = EvaluateAsyncJson("""
+            try {
+                throw 42;
+            } catch (e) {
+                await Promise.resolve();
+                return { value: e };
+            }
+            """);
+
+        Assert.Equal("""{"value":42}""", result);
+    }
+
+    [Fact]
+    public void ShouldPreserveCatchReturnAcrossAwaitedFinallyAfterCatchResume()
+    {
+        var engine = new Engine();
+
+        var result = engine.Evaluate("""
+            (async () => {
+                try {
+                    throw 1;
+                } catch {
+                    await Promise.resolve();
+                    return 2;
+                } finally {
+                    await Promise.resolve();
+                }
+            })()
+            """).UnwrapIfPromise(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(2, result.AsInteger());
+    }
+
+    [Fact]
+    public void ShouldPreserveCatchThrowAcrossAwaitedFinallyAfterCatchResume()
+    {
+        var engine = new Engine();
+
+        var result = engine.Evaluate("""
+            (async () => {
+                try {
+                    throw 1;
+                } catch {
+                    await Promise.resolve();
+                    throw 4;
+                } finally {
+                    await Promise.resolve();
+                }
+            })()
+            """);
+
+        var exception = Assert.Throws<PromiseRejectedException>(() => result.UnwrapIfPromise(TimeSpan.FromSeconds(1)));
+        Assert.Equal(4, exception.RejectedValue.AsInteger());
+    }
+
+    [Fact]
+    public void ShouldResumeAwaitInsideIfWithoutReexecutingTest()
+    {
+        var result = EvaluateAsyncJson("""
+            let tests = 0;
+            if (++tests === 1) {
+                await Promise.resolve();
+                return { tests };
+            }
+            return { tests, fellThrough: true };
+            """);
+
+        Assert.Equal("""{"tests":1}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotExecuteElseWhileIfTestIsSuspended()
+    {
+        var result = EvaluateAsyncJson("""
+            let sideEffects = 0;
+            if (await Promise.resolve(true)) {
+            } else {
+                sideEffects++;
+            }
+            return { sideEffects };
+            """);
+
+        Assert.Equal("""{"sideEffects":0}""", result);
+    }
+
+    [Fact]
+    public void ShouldResumeAwaitInsideWhileBodyWithoutReexecutingTest()
+    {
+        var result = EvaluateAsyncJson("""
+            let tests = 0;
+            let bodies = 0;
+            while (++tests <= 1) {
+                bodies++;
+                await Promise.resolve();
+                return { tests, bodies };
+            }
+            return { tests, bodies, fellThrough: true };
+            """);
+
+        Assert.Equal("""{"tests":1,"bodies":1}""", result);
+    }
+
+    [Fact]
+    public void ShouldResumeAwaitInsideForBodyWithoutReexecutingTest()
+    {
+        var result = EvaluateAsyncJson("""
+            let inits = 0;
+            let tests = 0;
+            let updates = 0;
+            let bodies = 0;
+            for (inits++; ++tests <= 1; updates++) {
+                bodies++;
+                await Promise.resolve();
+                return { inits, tests, updates, bodies };
+            }
+            return { inits, tests, updates, bodies, fellThrough: true };
+            """);
+
+        Assert.Equal("""{"inits":1,"tests":1,"updates":0,"bodies":1}""", result);
+    }
+
+    [Fact]
+    public void ShouldResumeAwaitInsideForUpdateWithoutReexecutingBody()
+    {
+        var result = EvaluateAsyncJson("""
+            let bodies = 0;
+            for (let i = 0; i < 1; i += await Promise.resolve(1)) {
+                bodies++;
+            }
+            return { bodies };
+            """);
+
+        Assert.Equal("""{"bodies":1}""", result);
+    }
+
+    [Fact]
+    public void ShouldResumeAwaitInsideSwitchCaseWithoutReexecutingDiscriminant()
+    {
+        var result = EvaluateAsyncJson("""
+            let discriminants = 0;
+            switch (++discriminants) {
+                case 1:
+                    await Promise.resolve();
+                    return { discriminants };
+                default:
+                    return { discriminants, fellThrough: true };
+            }
+            """);
+
+        Assert.Equal("""{"discriminants":1}""", result);
+    }
+
+    [Fact]
+    public void ShouldResumeAwaitInsideSwitchCaseTestBeforeMatchingCase()
+    {
+        var result = EvaluateAsyncJson("""
+            switch (0) {
+                case await Promise.resolve(1):
+                    return { matched: true };
+                default:
+                    return { matched: false };
+            }
+            """);
+
+        Assert.Equal("""{"matched":false}""", result);
+    }
+
+    [Fact]
+    public void ShouldPreserveSwitchLexicalBindingAfterAwaitInsideCase()
+    {
+        var result = EvaluateAsyncJson("""
+            switch (1) {
+                case 1:
+                    let x = 1;
+                    await Promise.resolve();
+                    return { x };
+                default:
+                    return { x: 0 };
+            }
+            """);
+
+        Assert.Equal("""{"x":1}""", result);
+    }
+
+    [Fact]
+    public void ShouldClearSwitchSuspendDataAfterResumedBreak()
+    {
+        var result = EvaluateAsyncJson("""
+            const values = [];
+            for (let i = 0; i < 2; i++) {
+                switch (1) {
+                    case 1:
+                        let x = i;
+                        await Promise.resolve();
+                        values.push(x);
+                        break;
+                }
+            }
+            return { values };
+            """);
+
+        Assert.Equal("""{"values":[0,1]}""", result);
+    }
+
+    [Fact]
+    public void ShouldResumeAwaitInsideDoWhileTestWithoutReexecutingBody()
+    {
+        var result = EvaluateAsyncJson("""
+            let tests = 0;
+            let bodies = 0;
+            do {
+                bodies++;
+            } while (++tests < await Promise.resolve(1));
+            return { tests, bodies };
+            """);
+
+        Assert.Equal("""{"tests":1,"bodies":1}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotReevaluateBinaryLeftOperandAfterAwait()
+    {
+        var result = EvaluateAsyncJson("""
+            let d = 0;
+            const sum = (++d) + (await Promise.resolve(10));
+            return { d, sum };
+            """);
+
+        Assert.Equal("""{"d":1,"sum":11}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotReevaluateLogicalAndLeftOperandAfterAwait()
+    {
+        var result = EvaluateAsyncJson("""
+            let d = 0;
+            const ok = (++d > 0) && (await Promise.resolve(true));
+            return { d, ok };
+            """);
+
+        Assert.Equal("""{"d":1,"ok":true}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotReevaluateLogicalOrLeftOperandAfterAwait()
+    {
+        var result = EvaluateAsyncJson("""
+            let d = 0;
+            const ok = (++d <= 0) || (await Promise.resolve(true));
+            return { d, ok };
+            """);
+
+        Assert.Equal("""{"d":1,"ok":true}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotReevaluateConditionalTestAfterAwait()
+    {
+        var result = EvaluateAsyncJson("""
+            let d = 0;
+            const value = (++d > 0) ? (await Promise.resolve("yes")) : "no";
+            return { d, value };
+            """);
+
+        Assert.Equal("""{"d":1,"value":"yes"}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotReevaluateConditionalTestWhenAlternateAwaits()
+    {
+        var result = EvaluateAsyncJson("""
+            let d = 0;
+            const value = (++d > 1) ? "yes" : (await Promise.resolve("no"));
+            return { d, value };
+            """);
+
+        Assert.Equal("""{"d":1,"value":"no"}""", result);
+    }
+
+    [Fact]
+    public void ShouldShortCircuitLogicalAndWithoutSavingLeftOperand()
+    {
+        // Left short-circuits to false: right (await) should never run, and a
+        // subsequent expression using the same `&&` should still re-evaluate left.
+        var result = EvaluateAsyncJson("""
+            let d = 0;
+            let awaits = 0;
+            const a = (d > 0) && (await Promise.resolve(++awaits));
+            d = 1;
+            const b = (d > 0) && (await Promise.resolve(++awaits));
+            return { a, b, awaits };
+            """);
+
+        Assert.Equal("""{"a":false,"b":1,"awaits":1}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotReevaluateCompoundAssignmentLhsAfterAwait()
+    {
+        var result = EvaluateAsyncJson("""
+            const obj = { 0: 0 };
+            let i = -1;
+            obj[++i] += await Promise.resolve(5);
+            return { obj, i };
+            """);
+
+        Assert.Equal("""{"obj":{"0":5},"i":0}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotReevaluatePropertyAssignmentLhsAfterAwait()
+    {
+        var result = EvaluateAsyncJson("""
+            const obj = { x: 10 };
+            let touches = 0;
+            const accessor = () => (touches++, obj);
+            accessor().x -= await Promise.resolve(3);
+            return { obj, touches };
+            """);
+
+        Assert.Equal("""{"obj":{"x":7},"touches":1}""", result);
+    }
+
+    [Fact]
+    public void ShouldPreserveCompoundAssignmentLhsAcrossNullishCoalescing()
+    {
+        var result = EvaluateAsyncJson("""
+            const obj = { 0: null };
+            let i = -1;
+            obj[++i] ??= await Promise.resolve("filled");
+            return { obj, i };
+            """);
+
+        Assert.Equal("""{"obj":{"0":"filled"},"i":0}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotReevaluateCompoundAssignmentLhsOnSimpleIdentifierAfterAwait()
+    {
+        // Simple-identifier LHS goes through the fast path (no observable side
+        // effect to preserve), but the result still has to be correct.
+        var result = EvaluateAsyncJson("""
+            let x = 7;
+            x *= await Promise.resolve(3);
+            return { x };
+            """);
+
+        Assert.Equal("""{"x":21}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotReevaluateCallArgumentsBeforeAwait()
+    {
+        var result = EvaluateAsyncJson("""
+            let i = 0;
+            const foo = (a, b, c) => ({ a, b, c });
+            const r = foo(++i, ++i, await Promise.resolve(++i));
+            return { r, i };
+            """);
+
+        Assert.Equal("""{"r":{"a":1,"b":2,"c":3},"i":3}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotReevaluateCallArgumentsAcrossMultipleAwaits()
+    {
+        var result = EvaluateAsyncJson("""
+            let i = 0;
+            const foo = (a, b, c, d) => ({ a, b, c, d });
+            const r = foo(++i, await Promise.resolve(++i), ++i, await Promise.resolve(++i));
+            return { r, i };
+            """);
+
+        Assert.Equal("""{"r":{"a":1,"b":2,"c":3,"d":4},"i":4}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotReevaluateNewExpressionArgumentsBeforeAwait()
+    {
+        var result = EvaluateAsyncJson("""
+            let i = 0;
+            class C {
+                constructor(a, b, c) { this.a = a; this.b = b; this.c = c; }
+            }
+            const obj = new C(++i, ++i, await Promise.resolve(++i));
+            return { obj: { a: obj.a, b: obj.b, c: obj.c }, i };
+            """);
+
+        Assert.Equal("""{"obj":{"a":1,"b":2,"c":3},"i":3}""", result);
+    }
+
+    [Fact]
+    public void ShouldHandleCallExpressionWithAwaitOnlyInLastArgument()
+    {
+        // Confirms the suspend-data is cleared after completion: a subsequent
+        // call to the same call site should not see stale state.
+        var result = EvaluateAsyncJson("""
+            let i = 0;
+            const foo = (a, b) => a + b;
+            const first = foo(++i, await Promise.resolve(10));
+            const second = foo(++i, await Promise.resolve(20));
+            return { first, second, i };
+            """);
+
+        Assert.Equal("""{"first":11,"second":22,"i":2}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotReevaluateArrayLiteralElementsBeforeAwait()
+    {
+        var result = EvaluateAsyncJson("""
+            let i = 0;
+            const a = [++i, ++i, await Promise.resolve(++i)];
+            return { a, i };
+            """);
+
+        Assert.Equal("""{"a":[1,2,3],"i":3}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotReevaluateArrayLiteralAcrossMultipleAwaits()
+    {
+        var result = EvaluateAsyncJson("""
+            let i = 0;
+            const a = [++i, await Promise.resolve(++i), ++i, await Promise.resolve(++i)];
+            return { a, i };
+            """);
+
+        Assert.Equal("""{"a":[1,2,3,4],"i":4}""", result);
+    }
+
+    [Fact]
+    public void ShouldClearArrayLiteralSuspendDataBetweenCalls()
+    {
+        var result = EvaluateAsyncJson("""
+            let i = 0;
+            const first = [++i, await Promise.resolve(10)];
+            const second = [++i, await Promise.resolve(20)];
+            return { first, second, i };
+            """);
+
+        Assert.Equal("""{"first":[1,10],"second":[2,20],"i":2}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotReiterateOneShotSpreadIteratorAcrossAwaitInArrayLiteral()
+    {
+        // A custom iterator stored in `g` is drained on first pass. Without
+        // preservation, the spread re-iterates `g` on resume and gets nothing.
+        var result = EvaluateAsyncJson("""
+            function* gen() { yield "a"; yield "b"; yield "c"; }
+            const g = gen();
+            const r = [...g, await Promise.resolve("d")];
+            return { r };
+            """);
+
+        Assert.Equal("""{"r":["a","b","c","d"]}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotReiterateOneShotSpreadIteratorAcrossAwaitInCallArguments()
+    {
+        var result = EvaluateAsyncJson("""
+            function* gen() { yield 1; yield 2; yield 3; }
+            const g = gen();
+            const sum = (...vals) => vals.reduce((a, b) => a + b, 0);
+            const total = sum(...g, await Promise.resolve(10));
+            return { total };
+            """);
+
+        Assert.Equal("""{"total":16}""", result);
+    }
+
+    [Fact]
+    public void ShouldPreserveTargetAcrossMultipleSuspensionsInSpreadArguments()
+    {
+        var result = EvaluateAsyncJson("""
+            function* gen() { yield "x"; yield "y"; }
+            const g = gen();
+            const a = [
+                await Promise.resolve("start"),
+                ...g,
+                await Promise.resolve("end")
+            ];
+            return { a };
+            """);
+
+        Assert.Equal("""{"a":["start","x","y","end"]}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotEvaluateLaterArgumentsAfterSuspensionInSpread()
+    {
+        // Without the IsSuspended-check-before-Add fix, `++j` would run during
+        // the suspended pass after the await sentinel is appended.
+        var result = EvaluateAsyncJson("""
+            let j = 0;
+            const arr = [1];
+            const r = [...arr, await Promise.resolve("mid"), ++j];
+            return { r, j };
+            """);
+
+        Assert.Equal("""{"r":[1,"mid",1],"j":1}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotReevaluateNullishCoalescingLeftOperandAfterAwait()
+    {
+        var result = EvaluateAsyncJson("""
+            let d = 0;
+            const getNullish = () => (++d, null);
+            const v = getNullish() ?? (await Promise.resolve("filled"));
+            return { d, v };
+            """);
+
+        Assert.Equal("""{"d":1,"v":"filled"}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotReevaluateMemberExpressionObjectAcrossPropertyAwait()
+    {
+        var result = EvaluateAsyncJson("""
+            let calls = 0;
+            const obj = { val: 1 };
+            const get = () => (calls++, obj);
+            const v = get()[await Promise.resolve("val")];
+            return { v, calls };
+            """);
+
+        Assert.Equal("""{"v":1,"calls":1}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotReevaluateMemberExpressionObjectAcrossAwaitInChain()
+    {
+        var result = EvaluateAsyncJson("""
+            let calls = 0;
+            const obj = { foo: { bar: 42 } };
+            const get = () => (calls++, obj);
+            const v = get().foo[await Promise.resolve("bar")];
+            return { v, calls };
+            """);
+
+        Assert.Equal("""{"v":42,"calls":1}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotReevaluateObjectLiteralPropertiesBeforeAwait()
+    {
+        var result = EvaluateAsyncJson("""
+            let i = 0;
+            const o = { a: ++i, b: ++i, c: await Promise.resolve(++i) };
+            return { o, i };
+            """);
+
+        Assert.Equal("""{"o":{"a":1,"b":2,"c":3},"i":3}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotReevaluateObjectLiteralPropertiesAcrossMultipleAwaits()
+    {
+        var result = EvaluateAsyncJson("""
+            let i = 0;
+            const o = {
+                a: ++i,
+                b: await Promise.resolve(++i),
+                c: ++i,
+                d: await Promise.resolve(++i)
+            };
+            return { o, i };
+            """);
+
+        Assert.Equal("""{"o":{"a":1,"b":2,"c":3,"d":4},"i":4}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotReevaluateComputedKeyAcrossAwaitInObjectLiteral()
+    {
+        var result = EvaluateAsyncJson("""
+            let i = 0;
+            const k = () => "k" + (++i);
+            const o = { [k()]: 1, value: await Promise.resolve("done") };
+            return { o, i };
+            """);
+
+        Assert.Equal("""{"o":{"k1":1,"value":"done"},"i":1}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotReevaluateTemplateLiteralInterpolationsBeforeAwait()
+    {
+        var result = EvaluateAsyncJson("""
+            let i = 0;
+            const s = `${++i}-${await Promise.resolve("x")}-${++i}`;
+            return { s, i };
+            """);
+
+        Assert.Equal("""{"s":"1-x-2","i":2}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotEvaluateLaterInterpolationsAfterSuspensionInTemplateLiteral()
+    {
+        // Without the IsSuspended-break inside the interpolation loop, `++j` would
+        // also run during the suspended pass, doubling its side effect on resume.
+        var result = EvaluateAsyncJson("""
+            let j = 0;
+            const s = `${await Promise.resolve("mid")}-${++j}`;
+            return { s, j };
+            """);
+
+        Assert.Equal("""{"s":"mid-1","j":1}""", result);
+    }
+
+    [Fact]
+    public void ShouldNotReevaluateTaggedTemplateInterpolationsBeforeAwait()
+    {
+        var result = EvaluateAsyncJson("""
+            let i = 0;
+            const tag = (strings, ...values) => values.join("|");
+            const s = tag`${++i}-${await Promise.resolve("x")}-${++i}`;
+            return { s, i };
+            """);
+
+        Assert.Equal("""{"s":"1|x|2","i":2}""", result);
+    }
+
+    [Fact]
     public void ShouldTaskConvertedToPromiseInJS()
     {
         Engine engine = new();
@@ -32,6 +703,16 @@ public class AsyncTests
             Assert.True(true);
             return 1;
         }
+    }
+
+    private static string EvaluateAsyncJson(string body)
+    {
+        var engine = new Engine();
+        return engine.Evaluate($$"""
+            (async () => {
+                {{body}}
+            })().then(JSON.stringify)
+            """).UnwrapIfPromise(TimeSpan.FromSeconds(1)).AsString();
     }
 
     [Fact]
@@ -2107,6 +2788,134 @@ public class AsyncTests
         result = result.UnwrapIfPromise();
         Assert.Equal("10,20,30", result.AsString());
     }
+
+    [Fact]
+    public void AwaitInsideForOfLoopShouldWorkWithHeadDestructuring()
+    {
+        var engine = new Engine();
+        var result = engine.Evaluate("""
+            (async function() {
+                var results = [];
+                var items = { a: 1, b: 2 };
+                for (const [key, value] of Object.entries(items)) {
+                    var r = await Promise.resolve(value * 10);
+                    results.push(key + ":" + r);
+                }
+                return results.join(",");
+            })()
+            """);
+
+        result = result.UnwrapIfPromise();
+        Assert.Equal("a:10,b:20", result.AsString());
+    }
+
+    [Fact]
+    public void AwaitInsideForOfLoopShouldPreserveOneShotIteratorDestructuring()
+    {
+        var engine = new Engine();
+        var result = engine.Evaluate("""
+            (async function() {
+                function* gen() { yield 1; }
+                var out = [];
+                for (const [x] of [gen()]) {
+                    await Promise.resolve();
+                    out.push(x);
+                }
+                return out.join(",");
+            })()
+            """);
+
+        result = result.UnwrapIfPromise();
+        Assert.Equal("1", result.AsString());
+    }
+
+    [Fact]
+    public void AwaitInsideForOfLoopShouldPreserveOneShotIteratorDestructuringAcrossIterations()
+    {
+        var engine = new Engine();
+        var result = engine.Evaluate("""
+            (async function() {
+                function* gen(n) { yield n; }
+                var out = [];
+                for (const [x] of [gen(1), gen(2), gen(3)]) {
+                    await Promise.resolve();
+                    out.push(x);
+                }
+                return out.join(",");
+            })()
+            """);
+
+        result = result.UnwrapIfPromise();
+        Assert.Equal("1,2,3", result.AsString());
+    }
+
+    [Fact]
+    public void AwaitInsideForOfLoopShouldPreserveOneShotIteratorDestructuringWithLetBinding()
+    {
+        var engine = new Engine();
+        var result = engine.Evaluate("""
+            (async function() {
+                function* gen() { yield 42; }
+                var out = [];
+                for (let [x] of [gen()]) {
+                    await Promise.resolve();
+                    out.push(x);
+                }
+                return out.join(",");
+            })()
+            """);
+
+        result = result.UnwrapIfPromise();
+        Assert.Equal("42", result.AsString());
+    }
+
+    [Fact]
+    public void AwaitInsideForOfLoopShouldPreserveOneShotIteratorDestructuringWithAssignmentTarget()
+    {
+        var engine = new Engine();
+        var result = engine.Evaluate("""
+            (async function() {
+                function* gen() { yield 7; }
+                var out = [];
+                var x;
+                for ([x] of [gen()]) {
+                    await Promise.resolve();
+                    out.push(x);
+                }
+                return out.join(",");
+            })()
+            """);
+
+        result = result.UnwrapIfPromise();
+        Assert.Equal("7", result.AsString());
+    }
+
+#if !NETFRAMEWORK
+    [Fact]
+    public async Task EventLoopShouldSignalAllConcurrentWaiters()
+    {
+        // Regression: a second concurrent caller of WaitForEventAsync used to receive
+        // Task.CompletedTask immediately because the loop only tracked a single
+        // outstanding TCS. Its outer loop would then spin (or, if a single Enqueue
+        // arrived, only the first waiter would be woken). With the multi-waiter fix,
+        // both waiters register and both are signaled by a single Enqueue.
+        var loop = new EventLoop();
+
+        var waiter1 = loop.WaitForEventAsync(CancellationToken.None);
+        var waiter2 = loop.WaitForEventAsync(CancellationToken.None);
+
+        Assert.False(waiter1.IsCompleted, "waiter1 should be pending until Enqueue");
+        Assert.False(waiter2.IsCompleted, "waiter2 should be pending until Enqueue");
+
+        loop.Enqueue(static () => { });
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await Task.WhenAll(waiter1, waiter2).WaitAsync(cts.Token);
+
+        Assert.True(waiter1.IsCompletedSuccessfully);
+        Assert.True(waiter2.IsCompletedSuccessfully);
+    }
+#endif
 
     class TestAsyncClass
     {

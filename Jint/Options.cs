@@ -211,7 +211,7 @@ public class Options
 
         foreach (var overloads in methods.GroupBy(x => x.Name, StringComparer.Ordinal))
         {
-            PropertyDescriptor CreateMethodInstancePropertyDescriptor(ClrFunction? function)
+            PropertyDescriptor CreateMethodInstancePropertyDescriptor(Function? function)
             {
                 var instance = new MethodInfoFunction(
                     engine,
@@ -229,9 +229,9 @@ public class Options
             PropertyDescriptor? descriptorWithoutFallback = null;
 
             if (prototype.HasOwnProperty(key) &&
-                prototype.GetOwnProperty(key).Value is ClrFunction clrFunctionInstance)
+                prototype.GetOwnProperty(key).Value is Function functionInstance)
             {
-                descriptorWithFallback = CreateMethodInstancePropertyDescriptor(clrFunctionInstance);
+                descriptorWithFallback = CreateMethodInstancePropertyDescriptor(functionInstance);
                 prototype.SetOwnProperty(key, descriptorWithFallback);
             }
             else
@@ -246,9 +246,9 @@ public class Options
                 key = char.ToLower(overloads.Key[0], CultureInfo.InvariantCulture) + overloads.Key.Substring(1);
 
                 if (prototype.HasOwnProperty(key) &&
-                    prototype.GetOwnProperty(key).Value is ClrFunction lowerclrFunctionInstance)
+                    prototype.GetOwnProperty(key).Value is Function lowerFunctionInstance)
                 {
-                    descriptorWithFallback ??= CreateMethodInstancePropertyDescriptor(lowerclrFunctionInstance);
+                    descriptorWithFallback ??= CreateMethodInstancePropertyDescriptor(lowerFunctionInstance);
                     prototype.SetOwnProperty(key, descriptorWithFallback);
                 }
                 else
@@ -410,6 +410,15 @@ public class Options
         public bool AttachArrayPrototype { get; set; } = true;
 
         /// <summary>
+        /// When true, JavaScript prototype methods take precedence over CLR methods of the same name on wrapped CLR objects
+        /// whose prototype is not the default Object prototype (e.g. <c>Array.prototype</c> attached to wrapped <see cref="System.Collections.Generic.IList{T}"/>).
+        /// Avoids semantic mismatches such as <c>List&lt;T&gt;.Reverse()</c> returning <c>void</c> while
+        /// <c>Array.prototype.reverse</c> returns the array. Has no effect when no JS prototype is attached
+        /// (i.e. <see cref="AttachArrayPrototype"/> is false or the wrapped type is not array-like). Defaults to false for backward compatibility.
+        /// </summary>
+        public bool PreferJsPrototypeMethods { get; set; }
+
+        /// <summary>
         /// Whether the engine should throw an error when a member is not found on a CLR object. Defaults to false.
         /// </summary>
         public bool ThrowOnUnresolvedMember { get; set; }
@@ -498,9 +507,19 @@ public class Options
         public bool StringCompilationAllowed { get; set; } = true;
 
         /// <summary>
-        /// Possibility to override Jint's default function() { [native code] } format for functions using AST Node.
-        /// If callback return null, Jint will use its own default logic.
+        /// Possibility to override Jint's default <c>Function.prototype.toString()</c> implementation.
+        /// If the callback returns <see langword="null"/>, Jint will use its own default logic.
         /// </summary>
+        /// <remarks>
+        /// In most cases, the AST node passed to the callback is of type <see cref="IFunction" />.
+        /// However, there are some special cases:<br/>
+        /// - For class constructors, a node of type <see cref="IClass"/> is passed
+        ///   since <c>toString()</c> should return the code of the entire class as per specification.<br/>
+        /// - For class methods and getters/setters, a node of type <see cref="MethodDefinition"/> is passed
+        ///   since <c>toString()</c> should include the <c>get</c> or <c>set</c> tokens for getters/setters and the member name as per specification.<br/>
+        /// - For object methods and getters/setters, a node of type <see cref="ObjectProperty"/> is passed
+        ///   since <c>toString()</c> should include the <c>get</c> or <c>set</c> tokens for getters/setters and the member name as per specification.
+        /// </remarks>
         public Func<Function, Node, string?> FunctionToStringHandler { get; set; } = (_, _) => null;
     }
 
@@ -562,6 +581,18 @@ public class Options
         /// for full IANA time zone support and better Windows compatibility.
         /// </remarks>
         public ITimeZoneProvider TimeZoneProvider { get; set; } = DefaultTimeZoneProvider.Instance;
+
+        /// <summary>
+        /// Calendar provider for non-ISO calendar arithmetic and field conversion.
+        /// Defaults to <see cref="DefaultCalendarProvider"/> which uses .NET
+        /// <see cref="System.Globalization.Calendar"/> subclasses.
+        /// </summary>
+        /// <remarks>
+        /// Set this to a custom <see cref="ICalendarProvider"/> implementation
+        /// (e.g. backed by ICU4N or NodaTime) for richer support of islamic-umalqura,
+        /// Persian astronomical, or Chinese/Dangi calendars at extreme dates.
+        /// </remarks>
+        public ICalendarProvider CalendarProvider { get; set; } = DefaultCalendarProvider.Instance;
     }
 }
 

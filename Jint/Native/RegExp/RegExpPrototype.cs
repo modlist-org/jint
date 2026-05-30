@@ -1,7 +1,8 @@
-﻿#pragma warning disable CA1859 // Use concrete types when possible for improved performance -- most of prototype methods return JsValue
+#pragma warning disable CA1859 // Use concrete types when possible for improved performance -- most of prototype methods return JsValue
 
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using Jint.Native.Number;
 using Jint.Native.Object;
 using Jint.Native.String;
@@ -9,10 +10,12 @@ using Jint.Native.Symbol;
 using Jint.Runtime;
 using Jint.Runtime.Descriptors;
 using Jint.Runtime.Interop;
+using Jint.Runtime.RegExp;
 
 namespace Jint.Native.RegExp;
 
-internal sealed class RegExpPrototype : Prototype
+[JsObject(ExtraCapacity = 1)]
+internal sealed partial class RegExpPrototype : Prototype
 {
     private static readonly JsString PropertyExec = new("exec");
     private static readonly JsString PropertyIndex = new("index");
@@ -29,7 +32,9 @@ internal sealed class RegExpPrototype : Prototype
     private static readonly JsString PropertyUnicode = new("unicode");
     private static readonly JsString PropertyUnicodeSets = new("unicodeSets");
 
+    [JsProperty(Name = "constructor", Flags = PropertyFlag.Configurable | PropertyFlag.Writable)]
     private readonly RegExpConstructor _constructor;
+
     private readonly JsCallDelegate _defaultExec;
 
     internal RegExpPrototype(
@@ -45,67 +50,103 @@ internal sealed class RegExpPrototype : Prototype
 
     protected override void Initialize()
     {
-        const PropertyFlag lengthFlags = PropertyFlag.Configurable;
+        CreateProperties_Generated();
+        CreateSymbols_Generated();
 
-        GetSetPropertyDescriptor CreateGetAccessorDescriptor(string name, Func<JsRegExp, JsValue> valueExtractor, JsValue? protoValue = null)
-        {
-            var propertyName = name.StartsWith("get ", StringComparison.Ordinal) ? name.Substring(4) : name;
-            return new GetSetPropertyDescriptor(
-                get: new ClrFunction(Engine, name, (thisObj, arguments) =>
-                {
-                    if (ReferenceEquals(thisObj, this))
-                    {
-                        return protoValue ?? Undefined;
-                    }
-
-                    var r = thisObj as JsRegExp;
-                    if (r is null)
-                    {
-                        Throw.TypeError(_realm, $"RegExp.prototype.{propertyName} getter called on non-RegExp object");
-                    }
-
-                    return valueExtractor(r);
-                }, 0, lengthFlags),
-                set: Undefined,
-                flags: PropertyFlag.Configurable);
-        }
-
-        const PropertyFlag propertyFlags = PropertyFlag.Configurable | PropertyFlag.Writable;
-        var properties = new PropertyDictionary(15, checkExistingKeys: false)
-        {
-            ["constructor"] = new PropertyDescriptor(_constructor, propertyFlags),
-            ["compile"] = new PropertyDescriptor(new ClrFunction(Engine, "compile", Compile, 2, lengthFlags), propertyFlags),
-            ["toString"] = new PropertyDescriptor(new ClrFunction(Engine, "toString", ToRegExpString, 0, lengthFlags), propertyFlags),
-            ["exec"] = new PropertyDescriptor(new ClrFunction(Engine, "exec", _defaultExec, 1, lengthFlags), propertyFlags),
-            ["test"] = new PropertyDescriptor(new ClrFunction(Engine, "test", Test, 1, lengthFlags), propertyFlags),
-            ["dotAll"] = CreateGetAccessorDescriptor("get dotAll", static r => r.DotAll),
-            ["flags"] = new GetSetPropertyDescriptor(get: new ClrFunction(Engine, "get flags", Flags, 0, lengthFlags), set: Undefined, flags: PropertyFlag.Configurable),
-            ["global"] = CreateGetAccessorDescriptor("get global", static r => r.Global),
-            ["hasIndices"] = CreateGetAccessorDescriptor("get hasIndices", static r => r.Indices),
-            ["ignoreCase"] = CreateGetAccessorDescriptor("get ignoreCase", static r => r.IgnoreCase),
-            ["multiline"] = CreateGetAccessorDescriptor("get multiline", static r => r.Multiline),
-            ["source"] = new GetSetPropertyDescriptor(get: new ClrFunction(Engine, "get source", Source, 0, lengthFlags), set: Undefined, flags: PropertyFlag.Configurable),
-            ["sticky"] = CreateGetAccessorDescriptor("get sticky", static r => r.Sticky),
-            ["unicode"] = CreateGetAccessorDescriptor("get unicode", static r => r.FullUnicode),
-            ["unicodeSets"] = CreateGetAccessorDescriptor("get unicodeSets", static r => r.UnicodeSets)
-        };
-        SetProperties(properties);
-
-        var symbols = new SymbolDictionary(5)
-        {
-            [GlobalSymbolRegistry.Match] = new PropertyDescriptor(new ClrFunction(Engine, "[Symbol.match]", Match, 1, lengthFlags), propertyFlags),
-            [GlobalSymbolRegistry.MatchAll] = new PropertyDescriptor(new ClrFunction(Engine, "[Symbol.matchAll]", MatchAll, 1, lengthFlags), propertyFlags),
-            [GlobalSymbolRegistry.Replace] = new PropertyDescriptor(new ClrFunction(Engine, "[Symbol.replace]", Replace, 2, lengthFlags), propertyFlags),
-            [GlobalSymbolRegistry.Search] = new PropertyDescriptor(new ClrFunction(Engine, "[Symbol.search]", Search, 1, lengthFlags), propertyFlags),
-            [GlobalSymbolRegistry.Split] = new PropertyDescriptor(new ClrFunction(Engine, "[Symbol.split]", Split, 2, lengthFlags), propertyFlags)
-        };
-        SetSymbols(symbols);
+        // exec stays manually registered: HasDefaultRegExpExec compares by reference against the
+        // ClrFunction wrapping _defaultExec to detect "user replaced exec on the prototype". The
+        // generator's lazy descriptor would create a different Function instance each realm, breaking
+        // that identity check until first access. AddDangerous skips SetOwnProperty's validation;
+        // ExtraCapacity=1 on [JsObject] presizes the dict so this add doesn't trigger a resize.
+        _properties!.AddDangerous("exec", new PropertyDescriptor(new ClrFunction(Engine, "exec", _defaultExec, 1, PropertyFlag.Configurable), PropertyFlag.Configurable | PropertyFlag.Writable));
     }
+
+    // Spec: each prototype getter, when called on RegExp.prototype itself (not a JsRegExp instance),
+    // returns undefined (or a default for source). Cannot use cast typing on thisObject — that would
+    // raise TypeError before the proto-check runs.
+
+    [JsAccessor("dotAll")]
+    private JsValue DotAllGet(JsValue thisObject)
+    {
+        if (ReferenceEquals(thisObject, this)) return Undefined;
+        var r = thisObject as JsRegExp;
+        if (r is null) Throw.TypeError(_realm, "RegExp.prototype.dotAll getter called on non-RegExp object");
+        return r.DotAll;
+    }
+
+    [JsAccessor("global")]
+    private JsValue GlobalGet(JsValue thisObject)
+    {
+        if (ReferenceEquals(thisObject, this)) return Undefined;
+        var r = thisObject as JsRegExp;
+        if (r is null) Throw.TypeError(_realm, "RegExp.prototype.global getter called on non-RegExp object");
+        return r.Global;
+    }
+
+    [JsAccessor("hasIndices")]
+    private JsValue HasIndicesGet(JsValue thisObject)
+    {
+        if (ReferenceEquals(thisObject, this)) return Undefined;
+        var r = thisObject as JsRegExp;
+        if (r is null) Throw.TypeError(_realm, "RegExp.prototype.hasIndices getter called on non-RegExp object");
+        return r.Indices;
+    }
+
+    [JsAccessor("ignoreCase")]
+    private JsValue IgnoreCaseGet(JsValue thisObject)
+    {
+        if (ReferenceEquals(thisObject, this)) return Undefined;
+        var r = thisObject as JsRegExp;
+        if (r is null) Throw.TypeError(_realm, "RegExp.prototype.ignoreCase getter called on non-RegExp object");
+        return r.IgnoreCase;
+    }
+
+    [JsAccessor("multiline")]
+    private JsValue MultilineGet(JsValue thisObject)
+    {
+        if (ReferenceEquals(thisObject, this)) return Undefined;
+        var r = thisObject as JsRegExp;
+        if (r is null) Throw.TypeError(_realm, "RegExp.prototype.multiline getter called on non-RegExp object");
+        return r.Multiline;
+    }
+
+    [JsAccessor("sticky")]
+    private JsValue StickyGet(JsValue thisObject)
+    {
+        if (ReferenceEquals(thisObject, this)) return Undefined;
+        var r = thisObject as JsRegExp;
+        if (r is null) Throw.TypeError(_realm, "RegExp.prototype.sticky getter called on non-RegExp object");
+        return r.Sticky;
+    }
+
+    [JsAccessor("unicode")]
+    private JsValue UnicodeGet(JsValue thisObject)
+    {
+        if (ReferenceEquals(thisObject, this)) return Undefined;
+        var r = thisObject as JsRegExp;
+        if (r is null) Throw.TypeError(_realm, "RegExp.prototype.unicode getter called on non-RegExp object");
+        return r.Unicode;
+    }
+
+    [JsAccessor("unicodeSets")]
+    private JsValue UnicodeSetsGet(JsValue thisObject)
+    {
+        if (ReferenceEquals(thisObject, this)) return Undefined;
+        var r = thisObject as JsRegExp;
+        if (r is null) Throw.TypeError(_realm, "RegExp.prototype.unicodeSets getter called on non-RegExp object");
+        return r.UnicodeSets;
+    }
+
+    [JsAccessor("flags")]
+    private JsValue FlagsGet(JsValue thisObject) => Flags(thisObject);
+
+    [JsAccessor("source")]
+    private JsValue SourceGet(JsValue thisObject) => Source(thisObject);
 
     /// <summary>
     /// https://tc39.es/ecma262/#sec-get-regexp.prototype.source
     /// </summary>
-    private JsValue Source(JsValue thisObject, JsCallArguments arguments)
+    private JsValue Source(JsValue thisObject)
     {
         if (ReferenceEquals(thisObject, this))
         {
@@ -133,12 +174,12 @@ internal sealed class RegExpPrototype : Prototype
     /// <summary>
     /// https://tc39.es/ecma262/#sec-regexp.prototype-@@replace
     /// </summary>
-    private JsValue Replace(JsValue thisObject, JsCallArguments arguments)
+    [JsSymbolFunction("Replace", Length = 2, Flags = global::Jint.Runtime.Descriptors.PropertyFlag.Configurable | global::Jint.Runtime.Descriptors.PropertyFlag.Writable)]
+    private JsValue Replace(JsValue thisObject, JsValue stringArg, JsValue replaceValue)
     {
         var rx = AssertThisIsObjectInstance(thisObject, "RegExp.prototype.replace");
-        var s = TypeConverter.ToString(arguments.At(0));
+        var s = TypeConverter.ToString(stringArg);
         var lengthS = s.Length;
-        var replaceValue = arguments.At(1);
         var functionalReplace = replaceValue is ICallable;
 
         // we need heavier logic if we have named captures
@@ -157,16 +198,53 @@ internal sealed class RegExpPrototype : Prototype
 
         if (global)
         {
-            fullUnicode = flags.Contains('u');
+            fullUnicode = flags.Contains('u') || flags.Contains('v');
             rx.Set(JsRegExp.PropertyLastIndex, 0, true);
         }
 
-        // check if we can access fast path
+        // Custom engine fast path for simple string replacement (no $-substitutions, no function)
+        if (!functionalReplace
+            && !mayHaveNamedCaptures
+            && rx is JsRegExp { HasDefaultRegExpExec: true, UsesDotNetEngine: false } customRei)
+        {
+            var customEngine = customRei.CustomEngine!;
+            var replStr = TypeConverter.ToString(replaceValue);
+            var sb = new ValueStringBuilder(stackalloc char[256]);
+
+            int lastPos = 0;
+            int searchStart = 0;
+            int maxCount = global ? int.MaxValue : 1;
+            int count = 0;
+
+            while (count < maxCount && searchStart <= s.Length)
+            {
+                var result = ExecuteWithTimeout(customRei, customEngine, s, searchStart);
+                if (!result.Success)
+                {
+                    break;
+                }
+
+                sb.Append(s.AsSpan(lastPos, result.Index - lastPos));
+                sb.Append(replStr);
+
+                lastPos = result.Index + result.Length;
+                searchStart = result.Length == 0
+                    ? (int) AdvanceStringIndex(s, (ulong) result.Index, fullUnicode)
+                    : lastPos;
+                count++;
+            }
+
+            sb.Append(s.AsSpan(lastPos));
+            rx.Set(JsRegExp.PropertyLastIndex, JsNumber.PositiveZero);
+            return sb.ToString();
+        }
+
+        // check if we can access fast path (only for .NET Regex engine)
         // Derive sticky from already-read flags string to avoid extra observable property access
         if (!fullUnicode
             && !mayHaveNamedCaptures
             && !flags.Contains('y')
-            && rx is JsRegExp rei && rei.HasDefaultRegExpExec)
+            && rx is JsRegExp { HasDefaultRegExpExec: true, UsesDotNetEngine: true } rei)
         {
             var count = global ? int.MaxValue : 1;
 
@@ -453,14 +531,14 @@ internal sealed class RegExpPrototype : Prototype
     /// <summary>
     /// https://tc39.es/ecma262/#sec-regexp.prototype-@@split
     /// </summary>
-    private JsValue Split(JsValue thisObject, JsCallArguments arguments)
+    [JsSymbolFunction("Split", Length = 2, Flags = global::Jint.Runtime.Descriptors.PropertyFlag.Configurable | global::Jint.Runtime.Descriptors.PropertyFlag.Writable)]
+    private JsValue Split(JsValue thisObject, JsValue stringArg, JsValue limit)
     {
         var rx = AssertThisIsObjectInstance(thisObject, "RegExp.prototype.split");
-        var s = TypeConverter.ToString(arguments.At(0));
-        var limit = arguments.At(1);
+        var s = TypeConverter.ToString(stringArg);
         var c = SpeciesConstructor(rx, _realm.Intrinsics.RegExp);
         var flags = TypeConverter.ToJsString(rx.Get(PropertyFlags));
-        var unicodeMatching = flags.Contains('u');
+        var unicodeMatching = flags.Contains('u') || flags.Contains('v');
         var newFlags = flags.Contains('y') ? flags : new JsString(flags.ToString() + 'y');
         var splitter = Construct(c, [
             rx,
@@ -487,7 +565,7 @@ internal sealed class RegExpPrototype : Prototype
             return a;
         }
 
-        if (!unicodeMatching && splitter is JsRegExp R && R.HasDefaultRegExpExec)
+        if (!unicodeMatching && splitter is JsRegExp R && R.HasDefaultRegExpExec && R.UsesDotNetEngine)
         {
             // we can take faster path
 
@@ -599,7 +677,7 @@ internal sealed class RegExpPrototype : Prototype
         return a;
     }
 
-    private JsValue Flags(JsValue thisObject, JsCallArguments arguments)
+    private JsValue Flags(JsValue thisObject)
     {
         var r = AssertThisIsObjectInstance(thisObject, "RegExp.prototype.flags");
 
@@ -620,7 +698,8 @@ internal sealed class RegExpPrototype : Prototype
         return result;
     }
 
-    private JsValue ToRegExpString(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Name = "toString")]
+    private JsValue ToRegExpString(JsValue thisObject)
     {
         var r = AssertThisIsObjectInstance(thisObject, "RegExp.prototype.toString");
 
@@ -630,34 +709,65 @@ internal sealed class RegExpPrototype : Prototype
         return "/" + pattern + "/" + flags;
     }
 
-    private JsValue Test(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsValue Test(JsValue thisObject, JsValue stringArg)
     {
         var r = AssertThisIsObjectInstance(thisObject, "RegExp.prototype.test");
-        var s = TypeConverter.ToString(arguments.At(0));
+        var s = TypeConverter.ToString(stringArg);
 
-        // check couple fast paths
-        if (r is JsRegExp R && !R.FullUnicode)
+        if (r is JsRegExp R && R.HasDefaultRegExpExec)
         {
-            if (!R.Sticky && !R.Global)
+            // Fast path for custom engine (allocation-free IsMatch)
+            if (!R.UsesDotNetEngine)
             {
-                R.Set(JsRegExp.PropertyLastIndex, 0, throwOnError: true);
-                return R.Value.IsMatch(s);
+                var customEngine = R.CustomEngine!;
+                if (!R.Sticky && !R.Global)
+                {
+                    return IsMatchWithTimeout(R, customEngine, s, 0);
+                }
+
+                var lastIndex = (int) TypeConverter.ToLength(R.Get(JsRegExp.PropertyLastIndex));
+                if (lastIndex >= s.Length && s.Length > 0)
+                {
+                    R.Set(JsRegExp.PropertyLastIndex, 0, throwOnError: true);
+                    return JsBoolean.False;
+                }
+
+                // For global/sticky, we need the match position to update lastIndex
+                var result = ExecuteWithTimeout(R, customEngine, s, lastIndex);
+                if (!result.Success || (R.Sticky && result.Index != lastIndex))
+                {
+                    R.Set(JsRegExp.PropertyLastIndex, 0, throwOnError: true);
+                    return JsBoolean.False;
+                }
+                R.Set(JsRegExp.PropertyLastIndex, result.Index + result.Length, throwOnError: true);
+                return JsBoolean.True;
             }
 
-            var lastIndex = (int) TypeConverter.ToLength(R.Get(JsRegExp.PropertyLastIndex));
-            if (lastIndex >= s.Length && s.Length > 0)
+            // Fast path for .NET Regex engine
+            if (!R.FullUnicode)
             {
-                return JsBoolean.False;
-            }
+                if (!R.Sticky && !R.Global)
+                {
+                    R.Set(JsRegExp.PropertyLastIndex, 0, throwOnError: true);
+                    return R.Value.IsMatch(s);
+                }
 
-            var m = R.Value.Match(s, lastIndex);
-            if (!m.Success || (R.Sticky && m.Index != lastIndex))
-            {
-                R.Set(JsRegExp.PropertyLastIndex, 0, throwOnError: true);
-                return JsBoolean.False;
+                var lastIndex = (int) TypeConverter.ToLength(R.Get(JsRegExp.PropertyLastIndex));
+                if (lastIndex >= s.Length && s.Length > 0)
+                {
+                    return JsBoolean.False;
+                }
+
+                var m = R.Value.Match(s, lastIndex);
+                if (!m.Success || (R.Sticky && m.Index != lastIndex))
+                {
+                    R.Set(JsRegExp.PropertyLastIndex, 0, throwOnError: true);
+                    return JsBoolean.False;
+                }
+                R.Set(JsRegExp.PropertyLastIndex, m.Index + m.Length, throwOnError: true);
+                return JsBoolean.True;
             }
-            R.Set(JsRegExp.PropertyLastIndex, m.Index + m.Length, throwOnError: true);
-            return JsBoolean.True;
         }
 
         var match = RegExpExec(r, s);
@@ -667,15 +777,29 @@ internal sealed class RegExpPrototype : Prototype
     /// <summary>
     /// https://tc39.es/ecma262/#sec-regexp.prototype-@@search
     /// </summary>
-    private JsValue Search(JsValue thisObject, JsCallArguments arguments)
+    [JsSymbolFunction("Search", Length = 1, Flags = global::Jint.Runtime.Descriptors.PropertyFlag.Configurable | global::Jint.Runtime.Descriptors.PropertyFlag.Writable)]
+    private JsValue Search(JsValue thisObject, JsValue stringArg)
     {
         var rx = AssertThisIsObjectInstance(thisObject, "RegExp.prototype.search");
 
-        var s = TypeConverter.ToString(arguments.At(0));
+        var s = TypeConverter.ToString(stringArg);
         var previousLastIndex = rx.Get(JsRegExp.PropertyLastIndex);
         if (!SameValue(previousLastIndex, 0))
         {
             rx.Set(JsRegExp.PropertyLastIndex, 0, true);
+        }
+
+        // Fast path for custom engine: only need the index, skip full result array
+        if (rx is JsRegExp { HasDefaultRegExpExec: true, UsesDotNetEngine: false } customR)
+        {
+            var searchResult = ExecuteWithTimeout(customR, customR.CustomEngine!, s, 0);
+            var currentLastIndex2 = rx.Get(JsRegExp.PropertyLastIndex);
+            if (!SameValue(currentLastIndex2, previousLastIndex))
+            {
+                rx.Set(JsRegExp.PropertyLastIndex, previousLastIndex, true);
+            }
+
+            return searchResult.Success ? searchResult.Index : -1;
         }
 
         var result = RegExpExec(rx, s);
@@ -696,11 +820,12 @@ internal sealed class RegExpPrototype : Prototype
     /// <summary>
     /// https://tc39.es/ecma262/#sec-regexp.prototype-@@match
     /// </summary>
-    private JsValue Match(JsValue thisObject, JsCallArguments arguments)
+    [JsSymbolFunction("Match", Length = 1, Flags = global::Jint.Runtime.Descriptors.PropertyFlag.Configurable | global::Jint.Runtime.Descriptors.PropertyFlag.Writable)]
+    private JsValue Match(JsValue thisObject, JsValue stringArg)
     {
         var rx = AssertThisIsObjectInstance(thisObject, "RegExp.prototype.match");
 
-        var s = TypeConverter.ToString(arguments.At(0));
+        var s = TypeConverter.ToString(stringArg);
         var flags = TypeConverter.ToString(rx.Get(PropertyFlags));
         var global = flags.Contains('g');
         if (!global)
@@ -708,19 +833,52 @@ internal sealed class RegExpPrototype : Prototype
             return RegExpExec(rx, s);
         }
 
-        var fullUnicode = flags.Contains('u');
+        var fullUnicode = flags.Contains('u') || flags.Contains('v');
         rx.Set(JsRegExp.PropertyLastIndex, JsNumber.PositiveZero, true);
 
-        if (!fullUnicode
-            && rx is JsRegExp rei
-            && rei.HasDefaultRegExpExec)
+        if (rx is JsRegExp rei && rei.HasDefaultRegExpExec && !rei.UsesDotNetEngine)
         {
-            // fast path
+            // fast path for custom engine: call Execute directly, skip building
+            // full JS result arrays per match (saves 15-20 allocations per match)
+            var customEngine = rei.CustomEngine!;
+            var a = _realm.Intrinsics.Array.ArrayCreate(0);
+            uint n = 0;
+            int lastIndex = 0;
+            while (lastIndex <= s.Length)
+            {
+                var result = ExecuteWithTimeout(rei, customEngine, s, lastIndex);
+                if (!result.Success)
+                {
+                    break;
+                }
+
+                a.SetIndexValue(n, result.Value, updateLength: false);
+
+                if (result.Length == 0)
+                {
+                    lastIndex = (int) AdvanceStringIndex(s, (ulong) result.Index, fullUnicode);
+                }
+                else
+                {
+                    lastIndex = result.Index + result.Length;
+                }
+
+                n++;
+            }
+
+            a.SetLength(n);
+            return n == 0 ? Null : a;
+        }
+
+        if (!fullUnicode
+            && rx is JsRegExp { HasDefaultRegExpExec: true, UsesDotNetEngine: true } dotnetRei)
+        {
+            // fast path (only for .NET Regex engine)
             var a = _realm.Intrinsics.Array.ArrayCreate(0);
 
-            if (rei.Sticky)
+            if (dotnetRei.Sticky)
             {
-                var match = rei.Value.Match(s);
+                var match = dotnetRei.Value.Match(s);
                 if (!match.Success || match.Index != 0)
                 {
                     return Null;
@@ -740,7 +898,7 @@ internal sealed class RegExpPrototype : Prototype
             }
             else
             {
-                var matches = rei.Value.Matches(s);
+                var matches = dotnetRei.Value.Matches(s);
                 if (matches.Count == 0)
                 {
                     return Null;
@@ -788,11 +946,12 @@ internal sealed class RegExpPrototype : Prototype
     /// <summary>
     /// https://tc39.es/ecma262/#sec-regexp-prototype-matchall
     /// </summary>
-    private JsValue MatchAll(JsValue thisObject, JsCallArguments arguments)
+    [JsSymbolFunction("MatchAll", Length = 1, Flags = global::Jint.Runtime.Descriptors.PropertyFlag.Configurable | global::Jint.Runtime.Descriptors.PropertyFlag.Writable)]
+    private JsValue MatchAll(JsValue thisObject, JsValue stringArg)
     {
         var r = AssertThisIsObjectInstance(thisObject, "RegExp.prototype.matchAll");
 
-        var s = TypeConverter.ToString(arguments.At(0));
+        var s = TypeConverter.ToString(stringArg);
         var c = SpeciesConstructor(r, _realm.Intrinsics.RegExp);
 
         var flags = TypeConverter.ToJsString(r.Get(PropertyFlags));
@@ -805,12 +964,12 @@ internal sealed class RegExpPrototype : Prototype
         matcher.Set(JsRegExp.PropertyLastIndex, lastIndex, true);
 
         var global = flags.Contains('g');
-        var fullUnicode = flags.Contains('u');
+        var fullUnicode = flags.Contains('u') || flags.Contains('v');
 
         return _realm.Intrinsics.RegExpStringIteratorPrototype.Construct(matcher, s, global, fullUnicode);
     }
 
-    private static ulong AdvanceStringIndex(string s, ulong index, bool unicode)
+    internal static ulong AdvanceStringIndex(string s, ulong index, bool unicode)
     {
         if (!unicode || index + 1 >= (ulong) s.Length)
         {
@@ -887,6 +1046,12 @@ internal sealed class RegExpPrototype : Prototype
             return array;
         }
 
+        // Use custom engine when .NET Regex cannot handle the pattern
+        if (!R.UsesDotNetEngine)
+        {
+            return CustomEngineBuiltinExec(R, s, lastIndex, global, sticky);
+        }
+
         var matcher = R.Value;
         var fullUnicode = R.FullUnicode;
         var hasIndices = R.Indices;
@@ -952,6 +1117,218 @@ internal sealed class RegExpPrototype : Prototype
         }
 
         return CreateReturnValueArray(R, match, s, fullUnicode, hasIndices);
+    }
+
+    /// <summary>
+    /// RegExpBuiltinExec implementation for the custom regex engine.
+    /// </summary>
+    private static JsValue CustomEngineBuiltinExec(JsRegExp R, string s, ulong lastIndex, bool global, bool sticky)
+    {
+        var customEngine = R.CustomEngine!;
+        var hasIndices = R.Indices;
+        var length = (ulong) s.Length;
+
+        if (lastIndex > length)
+        {
+            if (global || sticky)
+            {
+                R.Set(JsRegExp.PropertyLastIndex, JsNumber.PositiveZero, true);
+            }
+
+            return Null;
+        }
+
+        var result = ExecuteWithTimeout(R, customEngine, s, (int) lastIndex);
+        var success = result.Success && (!sticky || result.Index == (int) lastIndex);
+
+        if (!success)
+        {
+            if (global || sticky)
+            {
+                R.Set(JsRegExp.PropertyLastIndex, JsNumber.PositiveZero, true);
+            }
+
+            return Null;
+        }
+
+        var e = result.Index + result.Length;
+        if (global || sticky)
+        {
+            R.Set(JsRegExp.PropertyLastIndex, e, true);
+        }
+
+        return CreateReturnValueArrayFromCustom(R, result, s, hasIndices);
+    }
+
+    /// <summary>
+    /// Effective per-match timeout for a custom-engine regex. Prefers the prepare-time value
+    /// carried via <see cref="RegExpParseResult.AdditionalData"/>; falls back to the engine's
+    /// configured constraint for runtime-built regexes (where the same value was used at compile time).
+    /// </summary>
+    private static TimeSpan GetCustomEngineTimeout(JsRegExp R) =>
+        (R.ParseResult.AdditionalData as Engine.RegexConversionOptions)?.Timeout
+        ?? R.Engine.Options.Constraints.RegexTimeout;
+
+    /// <summary>
+    /// Runs the custom regex engine with timeout enforcement. Throws <see cref="RegexMatchTimeoutException"/>
+    /// when the configured timeout elapses — mirrors how <see cref="Regex.Match(string,int)"/> uses
+    /// <see cref="Regex.MatchTimeout"/> on the .NET path.
+    /// </summary>
+    private static RegExpMatchResult ExecuteWithTimeout(JsRegExp R, JintRegExpEngine engine, string s, int startIndex)
+    {
+        var timeout = GetCustomEngineTimeout(R);
+        if (timeout.TotalMilliseconds > 0 && timeout != Timeout.InfiniteTimeSpan)
+        {
+            using var cts = new CancellationTokenSource(timeout);
+            try
+            {
+                return engine.Execute(s, startIndex, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                throw new RegexMatchTimeoutException(s, R.Source ?? "", timeout);
+            }
+        }
+        return engine.Execute(s, startIndex);
+    }
+
+    /// <summary>
+    /// IsMatch counterpart of <see cref="ExecuteWithTimeout"/>.
+    /// </summary>
+    private static bool IsMatchWithTimeout(JsRegExp R, JintRegExpEngine engine, string s, int startIndex)
+    {
+        var timeout = GetCustomEngineTimeout(R);
+        if (timeout.TotalMilliseconds > 0 && timeout != Timeout.InfiniteTimeSpan)
+        {
+            using var cts = new CancellationTokenSource(timeout);
+            try
+            {
+                return engine.IsMatch(s, startIndex, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                throw new RegexMatchTimeoutException(s, R.Source ?? "", timeout);
+            }
+        }
+        return engine.IsMatch(s, startIndex);
+    }
+
+    /// <summary>
+    /// Build the JS result array from a custom engine match result.
+    /// </summary>
+    private static JsArray CreateReturnValueArrayFromCustom(
+        JsRegExp rei,
+        in RegExpMatchResult result,
+        string s,
+        bool hasIndices)
+    {
+        var engine = rei.Engine;
+        var groups = result.Groups;
+        var actualGroupCount = groups?.Length ?? 1;
+        var array = engine.Realm.Intrinsics.Array.ArrayCreate((ulong) actualGroupCount);
+        array.CreateDataProperty(PropertyIndex, result.Index);
+        array.CreateDataProperty(PropertyInput, s);
+
+        ObjectInstance? jsGroups = null;
+        List<string?>? groupNames = null;
+        var indices = hasIndices ? new List<JsNumber[]?>(actualGroupCount) : null;
+
+        var hasAnyGroupName = false;
+
+        // Pre-initialize groups object
+        if (groups is not null)
+        {
+            for (uint i = 1; i < actualGroupCount; i++)
+            {
+                var groupName = groups[i].Name;
+                if (!string.IsNullOrWhiteSpace(groupName))
+                {
+                    hasAnyGroupName = true;
+                    jsGroups ??= OrdinaryObjectCreate(engine, null);
+                    if (!jsGroups.HasOwnProperty(groupName))
+                    {
+                        jsGroups.CreateDataPropertyOrThrow(groupName, Undefined);
+                    }
+                }
+
+                if (hasIndices)
+                {
+                    groupNames ??= [];
+                    groupNames.Add(groupName);
+                }
+            }
+        }
+
+        for (uint i = 0; i < actualGroupCount; i++)
+        {
+            var capture = groups?[(int) i];
+            JsValue capturedValue = Undefined;
+            if (capture?.Success == true)
+            {
+                capturedValue = capture.Value.Value;
+            }
+
+            if (hasIndices)
+            {
+                if (capture?.Success == true)
+                {
+                    indices!.Add([JsNumber.Create(capture.Value.Index), JsNumber.Create(capture.Value.Index + capture.Value.Length)]);
+                }
+                else
+                {
+                    indices!.Add(null);
+                }
+            }
+
+            if (i > 0)
+            {
+                var groupName = groups?[(int) i].Name;
+                if (!string.IsNullOrWhiteSpace(groupName) && capture?.Success == true)
+                {
+                    jsGroups!.CreateDataPropertyOrThrow(groupName, capturedValue);
+                }
+            }
+
+            array.SetIndexValue(i, capturedValue, updateLength: false);
+        }
+
+        array.CreateDataProperty(PropertyGroups, jsGroups ?? Undefined);
+
+        if (hasIndices)
+        {
+            var indicesArray = MakeMatchIndicesIndexPairArray(engine, s, indices!, groupNames, hasAnyGroupName);
+            array.CreateDataPropertyOrThrow("indices", indicesArray);
+        }
+
+        // B.2.4 Update legacy RegExp static properties
+        UpdateLegacyStaticPropertiesFromCustom(engine, result, s, actualGroupCount);
+
+        return array;
+    }
+
+    private static void UpdateLegacyStaticPropertiesFromCustom(Engine engine, in RegExpMatchResult result, string s, int actualGroupCount)
+    {
+        var constructor = engine.Realm.Intrinsics.RegExp;
+        constructor._legacyInput = s;
+        constructor._legacyLastMatch = result.Value;
+        constructor.SetLegacyContext(s, result.Index, result.Length);
+
+        var groups = result.Groups;
+        var lastParen = "";
+        for (var i = 0; i < 9; i++)
+        {
+            var groupIndex = i + 1;
+            if (groups is not null && groupIndex < actualGroupCount && groups[groupIndex].Success)
+            {
+                constructor._legacyParens[i] = groups[groupIndex].Value;
+                lastParen = groups[groupIndex].Value;
+            }
+            else
+            {
+                constructor._legacyParens[i] = "";
+            }
+        }
+        constructor._legacyLastParen = lastParen;
     }
 
     private static JsArray CreateReturnValueArray(
@@ -1050,8 +1427,7 @@ internal sealed class RegExpPrototype : Prototype
         var constructor = engine.Realm.Intrinsics.RegExp;
         constructor._legacyInput = s;
         constructor._legacyLastMatch = match.Value;
-        constructor._legacyLeftContext = s.Substring(0, match.Index);
-        constructor._legacyRightContext = s.Substring(match.Index + match.Length);
+        constructor.SetLegacyContext(s, match.Index, match.Length);
 
         // Update $1-$9
         var lastParen = "";
@@ -1130,7 +1506,9 @@ internal sealed class RegExpPrototype : Prototype
 
     private static int GetActualRegexGroupCount(JsRegExp rei, Match match)
     {
-        return rei.ParseResult.Success ? rei.ParseResult.ActualRegexGroupCount : match.Groups.Count;
+#pragma warning disable CS0618 // Type or member is obsolete
+        return rei.UsesDotNetEngine ? rei.ParseResult.ActualRegexGroupCount : match.Groups.Count;
+#pragma warning restore CS0618 // Type or member is obsolete
     }
 
     private static string? GetRegexGroupName(JsRegExp rei, int index)
@@ -1139,14 +1517,17 @@ internal sealed class RegExpPrototype : Prototype
         {
             return null;
         }
-        var regex = rei.Value;
-        if (rei.ParseResult.Success)
+
+        if (rei.UsesDotNetEngine)
         {
+#pragma warning disable CS0618 // Type or member is obsolete
             return rei.ParseResult.GetRegexGroupName(index);
+#pragma warning restore CS0618 // Type or member is obsolete
         }
 
+        var regex = rei.Value;
         var groupNameFromNumber = regex.GroupNameFromNumber(index);
-        if (groupNameFromNumber.Length == 1 && groupNameFromNumber[0] == 48 + index)
+        if (string.Equals(groupNameFromNumber, index.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal))
         {
             // regex defaults to index as group name when it's not a named group
             return null;
@@ -1159,7 +1540,8 @@ internal sealed class RegExpPrototype : Prototype
     /// https://tc39.es/ecma262/#sec-regexp.prototype.compile
     /// B.2.5.1
     /// </summary>
-    private JsValue Compile(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsValue Compile(JsValue thisObject, JsValue pattern, JsValue flags)
     {
         // 1. Let O be the this value.
         // 2. Perform ? RequireInternalSlot(O, [[RegExpMatcher]]).
@@ -1177,9 +1559,6 @@ internal sealed class RegExpPrototype : Prototype
             Throw.TypeError(_realm, "RegExp.prototype.compile cannot be used on RegExp subclass or cross-realm instances");
             return default!;
         }
-
-        var pattern = arguments.At(0);
-        var flags = arguments.At(1);
 
         JsValue p;
         JsValue f;
@@ -1204,6 +1583,8 @@ internal sealed class RegExpPrototype : Prototype
         return _constructor.RegExpInitialize(r, p, f, throwOnLastIndex: true);
     }
 
+    // Not [JsFunction] — registered manually in AddRegExpAccessors so HasDefaultExec's
+    // ClrFunction-identity check (RegExpPrototype.cs HasDefaultExec) keeps working.
     private JsValue Exec(JsValue thisObject, JsCallArguments arguments)
     {
         var r = thisObject as JsRegExp;

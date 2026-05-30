@@ -299,6 +299,105 @@ public partial class InteropTests
         engine.Invoking(e => e.Evaluate("obj.AgeMissing")).Should().Throw<MissingMemberException>();
     }
 
+    private class ClassWithToString
+    {
+        public override string ToString() => "Test";
+    }
+
+    private class ClassWithCustomValueOf
+    {
+        public int ValueOf() => 42;
+        public override string ToString() => "Custom";
+    }
+
+    [Fact]
+    public void ImplicitStringCoercionShouldNotThrowForMissingValueOf()
+    {
+        // default settings — works as before via NullAccessor + prototype fallback
+        var engine = new Engine();
+        engine.SetValue("obj", new ClassWithToString());
+        engine.Evaluate("'prefix' + obj").AsString().Should().Be("prefixTest");
+
+        // bug regression — strict access must NOT block the implicit coercion
+        engine = new Engine(options => options.Interop.ThrowOnUnresolvedMember = true);
+        engine.SetValue("obj", new ClassWithToString());
+        engine.Evaluate("'prefix' + obj").AsString().Should().Be("prefixTest");
+
+        // valueOf via prototype returns the wrapper itself (Object.prototype.valueOf)
+        var wrapped = engine.Evaluate("obj");
+        engine.Evaluate("obj.valueOf()").Should().Be(wrapped);
+
+        // strict access still throws for genuinely missing members
+        engine.Invoking(e => e.Evaluate("obj.AgeMissing")).Should().Throw<MissingMemberException>();
+    }
+
+    [Fact]
+    public void NumericCoercionFallsBackToToStringWithStrictAccess()
+    {
+        // Number(obj): valueOf -> proto returns wrapper (not primitive) -> toString -> CLR ToString -> "Test" -> NaN
+        var engine = new Engine(options => options.Interop.ThrowOnUnresolvedMember = true);
+        engine.SetValue("obj", new ClassWithToString());
+        engine.Evaluate("Number(obj)").AsNumber().Should().Be(double.NaN);
+    }
+
+    [Fact]
+    public void CustomValueOfStillUsedWithStrictAccess()
+    {
+        // CLR ValueOf() resolves via case-insensitive first-char match — must take precedence over prototype's valueOf
+        var engine = new Engine(options => options.Interop.ThrowOnUnresolvedMember = true);
+        engine.SetValue("obj", new ClassWithCustomValueOf());
+        engine.Evaluate("'x' + obj").AsString().Should().Be("x42");
+        engine.Evaluate("Number(obj)").AsNumber().Should().Be(42);
+    }
+
+    [Fact]
+    public void StrictAccessStillThrowsForMissingWrites()
+    {
+        // Set policy unchanged: writing to an unknown member with strict mode throws
+        var engine = new Engine(options => options.Interop.ThrowOnUnresolvedMember = true);
+        engine.SetValue("obj", new ClassWithToString());
+        engine.Invoking(e => e.Evaluate("obj.NewProperty = 5")).Should().Throw<MissingMemberException>();
+    }
+
+    [Fact]
+    public void StrictAccessReturnsUndefinedForMissingDictionaryKey()
+    {
+        // dictionaries are key-value stores — missing keys return undefined even with strict access,
+        // matching ordinary JS object semantics (regression test for #2445)
+        var engine = new Engine(options => options.Interop.ThrowOnUnresolvedMember = true);
+        engine.SetValue("dict", new Dictionary<string, string> { ["Foo"] = "bar" });
+
+        engine.Evaluate("dict['Foo']").AsString().Should().Be("bar");
+        engine.Evaluate("dict['Missing']").Should().Be(JsValue.Undefined);
+
+        // real CLR members on the dictionary still resolve
+        engine.Evaluate("dict.Count").AsNumber().Should().Be(1);
+    }
+
+    [Fact]
+    public void StrictAccessReturnsUndefinedForMissingNonGenericDictionaryKey()
+    {
+        // covers the IsDictionary && !IsStringKeyedGenericDictionary branch (Hashtable etc.)
+        var engine = new Engine(options => options.Interop.ThrowOnUnresolvedMember = true);
+        var hashtable = new Hashtable { ["Foo"] = "bar" };
+        engine.SetValue("dict", hashtable);
+
+        engine.Evaluate("dict['Foo']").AsString().Should().Be("bar");
+        engine.Evaluate("dict['Missing']").Should().Be(JsValue.Undefined);
+    }
+
+    [Fact]
+    public void StrictAccessReturnsUndefinedForMissingReadOnlyDictionaryKey()
+    {
+        // IReadOnlyDictionary<string, T> goes through the same string-keyed-generic path
+        var engine = new Engine(options => options.Interop.ThrowOnUnresolvedMember = true);
+        IReadOnlyDictionary<string, int> dict = new Dictionary<string, int> { ["answer"] = 42 };
+        engine.SetValue("dict", dict);
+
+        engine.Evaluate("dict['answer']").AsNumber().Should().Be(42);
+        engine.Evaluate("dict['missing']").Should().Be(JsValue.Undefined);
+    }
+
     public class ClassWithPropertyToHide
     {
         public int x { get; set; } = 2;

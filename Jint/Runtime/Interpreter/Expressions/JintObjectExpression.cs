@@ -21,10 +21,10 @@ internal sealed class JintObjectExpression : JintExpression
     {
         internal readonly string? _key;
         private JsString? _keyJsString;
-        internal readonly Property _value;
+        internal readonly Acornima.Ast.ObjectProperty _value;
         private JintFunctionDefinition? _functionDefinition;
 
-        public ObjectProperty(string? key, Property property)
+        public ObjectProperty(string? key, Acornima.Ast.ObjectProperty property)
         {
             _key = key;
             _value = property;
@@ -32,7 +32,7 @@ internal sealed class JintObjectExpression : JintExpression
 
         public JsString? KeyJsString => _keyJsString ??= _key != null ? JsString.Create(_key) : null;
 
-        public JintFunctionDefinition GetFunctionDefinition(Engine engine)
+        public JintFunctionDefinition GetFunctionDefinition(Engine engine, Acornima.Ast.ObjectProperty property)
         {
             if (_functionDefinition is not null)
             {
@@ -45,7 +45,7 @@ internal sealed class JintObjectExpression : JintExpression
                 Throw.SyntaxError(engine.Realm);
             }
 
-            _functionDefinition = new JintFunctionDefinition(function);
+            _functionDefinition = new JintFunctionDefinition(function, sourceTextNode: property);
             return _functionDefinition;
         }
     }
@@ -130,9 +130,26 @@ internal sealed class JintObjectExpression : JintExpression
     private JsValue BuildObjectFast(EvaluationContext context)
     {
         var engine = context.Engine;
-        var obj = new JsObject(engine);
-        var properties = new PropertyDictionary(_properties.Length, checkExistingKeys: true);
-        for (var i = 0; i < _properties.Length; i++)
+        var suspendable = engine.ExecutionContext.Suspendable;
+
+        ObjectInstance obj;
+        PropertyDictionary properties;
+        int startIndex;
+        if (suspendable is { IsResuming: true }
+            && suspendable.Data.TryGet(this, out ObjectExpressionSuspendData? suspendData))
+        {
+            obj = suspendData!.Target!;
+            properties = suspendData.FastProperties!;
+            startIndex = suspendData.NextIndex;
+        }
+        else
+        {
+            obj = new JsObject(engine);
+            properties = new PropertyDictionary(_properties.Length, checkExistingKeys: true);
+            startIndex = 0;
+        }
+
+        for (var i = startIndex; i < _properties.Length; i++)
         {
             var objectProperty = _properties[i];
             var propValue = _valueExpressions.GetValue(context, i);
@@ -140,6 +157,13 @@ internal sealed class JintObjectExpression : JintExpression
             // Check for generator suspension after each property evaluation
             if (context.IsSuspended())
             {
+                if (suspendable is not null)
+                {
+                    var data = suspendable.Data.GetOrCreate<ObjectExpressionSuspendData>(this);
+                    data.Target = obj;
+                    data.FastProperties = properties;
+                    data.NextIndex = i;
+                }
                 return JsValue.Undefined;
             }
 
@@ -147,6 +171,7 @@ internal sealed class JintObjectExpression : JintExpression
         }
 
         obj.SetProperties(properties);
+        suspendable?.Data.Clear(this);
         return obj;
     }
 
@@ -156,9 +181,23 @@ internal sealed class JintObjectExpression : JintExpression
     private object BuildObjectNormal(EvaluationContext context)
     {
         var engine = context.Engine;
-        var obj = engine.Realm.Intrinsics.Object.Construct(_properties.Length);
+        var suspendable = engine.ExecutionContext.Suspendable;
 
-        for (var i = 0; i < _properties.Length; i++)
+        ObjectInstance obj;
+        int startIndex;
+        if (suspendable is { IsResuming: true }
+            && suspendable.Data.TryGet(this, out ObjectExpressionSuspendData? suspendData))
+        {
+            obj = suspendData!.Target!;
+            startIndex = suspendData.NextIndex;
+        }
+        else
+        {
+            obj = engine.Realm.Intrinsics.Object.Construct(_properties.Length);
+            startIndex = 0;
+        }
+
+        for (var i = startIndex; i < _properties.Length; i++)
         {
             var objectProperty = _properties[i];
 
@@ -170,6 +209,7 @@ internal sealed class JintObjectExpression : JintExpression
                 // Check for generator suspension
                 if (context.IsSuspended())
                 {
+                    SaveObjectExpressionSuspendState(suspendable, obj, i);
                     return JsValue.Undefined;
                 }
 
@@ -201,6 +241,7 @@ internal sealed class JintObjectExpression : JintExpression
                 // Check for generator suspension after evaluating computed property key
                 if (context.IsSuspended())
                 {
+                    SaveObjectExpressionSuspendState(suspendable, obj, i);
                     return value;
                 }
 
@@ -218,6 +259,7 @@ internal sealed class JintObjectExpression : JintExpression
                 // Check for generator suspension
                 if (context.IsSuspended())
                 {
+                    SaveObjectExpressionSuspendState(suspendable, obj, i);
                     return JsValue.Undefined;
                 }
 
@@ -240,7 +282,7 @@ internal sealed class JintObjectExpression : JintExpression
             }
             else if (property.Kind is PropertyKind.Get or PropertyKind.Set)
             {
-                var function = objectProperty.GetFunctionDefinition(engine);
+                var function = objectProperty.GetFunctionDefinition(engine, property);
                 var closure = engine.Realm.Intrinsics.Function.OrdinaryFunctionCreate(
                     engine.Realm.Intrinsics.Function.PrototypeObject,
                     function,
@@ -260,7 +302,18 @@ internal sealed class JintObjectExpression : JintExpression
             }
         }
 
+        suspendable?.Data.Clear(this);
         return obj;
+    }
+
+    private void SaveObjectExpressionSuspendState(ISuspendable? suspendable, ObjectInstance obj, int nextIndex)
+    {
+        if (suspendable is not null)
+        {
+            var data = suspendable.Data.GetOrCreate<ObjectExpressionSuspendData>(this);
+            data.Target = obj;
+            data.NextIndex = nextIndex;
+        }
     }
 
     internal sealed class JintEmptyObjectExpression : JintExpression

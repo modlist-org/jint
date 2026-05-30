@@ -12,7 +12,8 @@ namespace Jint.Native.Intl;
 /// <summary>
 /// https://tc39.es/ecma402/#sec-intl-numberformat-constructor
 /// </summary>
-internal sealed class NumberFormatConstructor : Constructor
+[JsObject]
+internal sealed partial class NumberFormatConstructor : Constructor
 {
     private static readonly JsString _functionName = new("NumberFormat");
     private static readonly string[] LocaleMatcherValues = ["lookup", "best fit"];
@@ -39,15 +40,7 @@ internal sealed class NumberFormatConstructor : Constructor
         _prototypeDescriptor = new PropertyDescriptor(PrototypeObject, PropertyFlag.AllForbidden);
     }
 
-    protected override void Initialize()
-    {
-        const PropertyFlag PropertyFlags = PropertyFlag.Configurable | PropertyFlag.Writable;
-        var properties = new PropertyDictionary(1, checkExistingKeys: false)
-        {
-            ["supportedLocalesOf"] = new(new ClrFunction(Engine, "supportedLocalesOf", SupportedLocalesOf, 1, PropertyFlag.Configurable), PropertyFlags)
-        };
-        SetProperties(properties);
-    }
+    protected override void Initialize() => CreateProperties_Generated();
 
     public NumberFormatPrototype PrototypeObject { get; }
 
@@ -92,6 +85,17 @@ internal sealed class NumberFormatConstructor : Constructor
         var requestedLocales = IntlUtilities.CanonicalizeLocaleList(_engine, locales);
         var availableLocales = IntlUtilities.GetAvailableLocales();
         var resolvedLocale = ResolveNumberFormatLocale(_engine, availableLocales, requestedLocales, localeMatcher);
+
+        // If no user-supplied numberingSystem, fall back to the locale's CLDR default
+        // (e.g. ar-EG → arab). Provider returning null means "no opinion" → use Latin.
+        if (numberingSystem is null)
+        {
+            var localeDefault = _engine.Options.Intl.CldrProvider.GetDefaultNumberingSystem(resolvedLocale);
+            if (localeDefault is not null && !string.Equals(localeDefault, "latn", StringComparison.OrdinalIgnoreCase))
+            {
+                numberingSystem = localeDefault;
+            }
+        }
 
         // SetNumberFormatUnitOptions - read style, currency, currencyDisplay, currencySign, unit, unitDisplay
         var style = GetStringOption(optionsObj, "style", StyleValues, "decimal");
@@ -890,10 +894,9 @@ internal sealed class NumberFormatConstructor : Constructor
     /// <summary>
     /// https://tc39.es/ecma402/#sec-intl.numberformat.supportedlocalesof
     /// </summary>
-    private JsArray SupportedLocalesOf(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Length = 1)]
+    private JsArray SupportedLocalesOf(JsValue thisObject, JsValue locales, JsValue options)
     {
-        var locales = arguments.At(0);
-        var options = arguments.At(1);
 
         var requestedLocales = IntlUtilities.CanonicalizeLocaleList(_engine, locales);
         var availableLocales = IntlUtilities.GetAvailableLocales();

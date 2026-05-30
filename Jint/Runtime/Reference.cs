@@ -111,12 +111,38 @@ public sealed class Reference
         ((Environment) _base).InitializeBinding(TypeConverter.ToString(_referencedName), value, hint);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal void EvaluateAndCachePropertyKey()
     {
-        if (!(_referencedName.IsInteger() && _base.IsIntegerIndexedArray))
+        // hot path: strings are already valid property keys (ToPropertyKey is a no-op for strings)
+        if (_referencedName.IsString())
         {
-            _referencedName = Runtime.TypeConverter.ToPropertyKey(_referencedName);
+            return;
         }
+
+        EvaluateAndCachePropertyKeySlow();
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private void EvaluateAndCachePropertyKeySlow()
+    {
+        if (_referencedName.IsInteger() && _base.IsIntegerIndexedArray)
+        {
+            return;
+        }
+
+        // Preserve the original JsValue when the base is a non-string-keyed CLR generic
+        // dictionary (e.g. Dictionary<TestModel, string>). ToPropertyKey would coerce
+        // the key to "[object Object]" via ToPrimitive→string, making it impossible
+        // for ObjectWrapper to resolve the underlying CLR key.
+        if (!_referencedName.IsSymbol()
+            && _base is Interop.ObjectWrapper wrapper
+            && wrapper._typeDescriptor.IsNonStringKeyedGenericDictionary)
+        {
+            return;
+        }
+
+        _referencedName = Runtime.TypeConverter.ToPropertyKey(_referencedName);
     }
 }
 

@@ -12,9 +12,13 @@ namespace Jint.Native.Temporal;
 /// <summary>
 /// https://tc39.es/proposal-temporal/#sec-properties-of-the-temporal-instant-prototype-object
 /// </summary>
-internal sealed class InstantPrototype : Prototype
+[JsObject]
+internal sealed partial class InstantPrototype : Prototype
 {
+    [JsProperty(Name = "constructor", Flags = PropertyFlag.NonEnumerable)]
     private readonly InstantConstructor _constructor;
+
+    [JsSymbol("ToStringTag", Flags = PropertyFlag.Configurable)] private static readonly JsString InstantToStringTag = new("Temporal.Instant");
 
     internal InstantPrototype(
         Engine engine,
@@ -28,34 +32,10 @@ internal sealed class InstantPrototype : Prototype
 
     protected override void Initialize()
     {
-        const PropertyFlag PropertyFlags = PropertyFlag.Writable | PropertyFlag.Configurable;
-        const PropertyFlag LengthFlags = PropertyFlag.Configurable;
-
-        var properties = new PropertyDictionary(14, checkExistingKeys: false)
-        {
-            ["constructor"] = new PropertyDescriptor(_constructor, PropertyFlag.NonEnumerable),
-            ["add"] = new(new ClrFunction(Engine, "add", Add, 1, LengthFlags), PropertyFlags),
-            ["subtract"] = new(new ClrFunction(Engine, "subtract", Subtract, 1, LengthFlags), PropertyFlags),
-            ["until"] = new(new ClrFunction(Engine, "until", Until, 1, LengthFlags), PropertyFlags),
-            ["since"] = new(new ClrFunction(Engine, "since", Since, 1, LengthFlags), PropertyFlags),
-            ["round"] = new(new ClrFunction(Engine, "round", Round, 1, LengthFlags), PropertyFlags),
-            ["equals"] = new(new ClrFunction(Engine, "equals", Equals, 1, LengthFlags), PropertyFlags),
-            ["toString"] = new(new ClrFunction(Engine, "toString", ToStringMethod, 0, LengthFlags), PropertyFlags),
-            ["toJSON"] = new(new ClrFunction(Engine, "toJSON", ToJSON, 0, LengthFlags), PropertyFlags),
-            ["toLocaleString"] = new(new ClrFunction(Engine, "toLocaleString", ToLocaleString, 0, LengthFlags), PropertyFlags),
-            ["valueOf"] = new(new ClrFunction(Engine, "valueOf", ValueOf, 0, LengthFlags), PropertyFlags),
-            ["toZonedDateTimeISO"] = new(new ClrFunction(Engine, "toZonedDateTimeISO", ToZonedDateTimeISO, 1, LengthFlags), PropertyFlags),
-            ["epochMilliseconds"] = new GetSetPropertyDescriptor(new ClrFunction(Engine, "get epochMilliseconds", GetEpochMilliseconds, 0, PropertyFlag.Configurable), Undefined, PropertyFlag.Configurable),
-            ["epochNanoseconds"] = new GetSetPropertyDescriptor(new ClrFunction(Engine, "get epochNanoseconds", GetEpochNanoseconds, 0, PropertyFlag.Configurable), Undefined, PropertyFlag.Configurable),
-        };
-        SetProperties(properties);
-
-        var symbols = new SymbolDictionary(1)
-        {
-            [GlobalSymbolRegistry.ToStringTag] = new("Temporal.Instant", PropertyFlag.Configurable)
-        };
-        SetSymbols(symbols);
+        CreateProperties_Generated();
+        CreateSymbols_Generated();
     }
+
 
     private JsInstant ValidateInstant(JsValue thisObject)
     {
@@ -65,7 +45,8 @@ internal sealed class InstantPrototype : Prototype
         return null!;
     }
 
-    private JsNumber GetEpochMilliseconds(JsValue thisObject, JsCallArguments arguments)
+    [JsAccessor("epochMilliseconds")]
+    private JsNumber GetEpochMilliseconds(JsValue thisObject)
     {
         var instant = ValidateInstant(thisObject);
         // Floor division for negative numbers (spec requires floor, not truncation)
@@ -85,7 +66,8 @@ internal sealed class InstantPrototype : Prototype
         return result;
     }
 
-    private JsBigInt GetEpochNanoseconds(JsValue thisObject, JsCallArguments arguments)
+    [JsAccessor("epochNanoseconds")]
+    private JsBigInt GetEpochNanoseconds(JsValue thisObject)
     {
         var instant = ValidateInstant(thisObject);
         return JsBigInt.Create(instant.EpochNanoseconds);
@@ -94,11 +76,10 @@ internal sealed class InstantPrototype : Prototype
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.instant.prototype.add
     /// </summary>
-    private JsInstant Add(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsInstant Add(JsValue thisObject, JsValue temporalDurationLike)
     {
         var instant = ValidateInstant(thisObject);
-        var temporalDurationLike = arguments.At(0);
-
         var duration = _realm.Intrinsics.TemporalDuration.ToTemporalDuration(temporalDurationLike);
         var d = duration.DurationRecord;
 
@@ -122,11 +103,10 @@ internal sealed class InstantPrototype : Prototype
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.instant.prototype.subtract
     /// </summary>
-    private JsInstant Subtract(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsInstant Subtract(JsValue thisObject, JsValue temporalDurationLike)
     {
         var instant = ValidateInstant(thisObject);
-        var temporalDurationLike = arguments.At(0);
-
         var duration = _realm.Intrinsics.TemporalDuration.ToTemporalDuration(temporalDurationLike);
         var d = duration.DurationRecord;
 
@@ -150,6 +130,7 @@ internal sealed class InstantPrototype : Prototype
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.instant.prototype.until
     /// </summary>
+    [JsFunction(Length = 1)]
     private JsDuration Until(JsValue thisObject, JsCallArguments arguments)
     {
         return DifferenceTemporalInstant(thisObject, arguments, isSince: false);
@@ -158,6 +139,7 @@ internal sealed class InstantPrototype : Prototype
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.instant.prototype.since
     /// </summary>
+    [JsFunction(Length = 1)]
     private JsDuration Since(JsValue thisObject, JsCallArguments arguments)
     {
         return DifferenceTemporalInstant(thisObject, arguments, isSince: true);
@@ -304,11 +286,10 @@ internal sealed class InstantPrototype : Prototype
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.instant.prototype.round
     /// </summary>
-    private JsInstant Round(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsInstant Round(JsValue thisObject, JsValue roundTo)
     {
         var instant = ValidateInstant(thisObject);
-        var roundTo = arguments.At(0);
-
         // Step 3: If roundTo is undefined, throw TypeError
         if (roundTo.IsUndefined())
         {
@@ -532,22 +513,21 @@ internal sealed class InstantPrototype : Prototype
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.instant.prototype.equals
     /// </summary>
-    private JsBoolean Equals(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsBoolean Equals(JsValue thisObject, JsValue other)
     {
         var instant = ValidateInstant(thisObject);
-        var other = _constructor.ToTemporalInstant(arguments.At(0));
-
-        return instant.EpochNanoseconds == other.EpochNanoseconds ? JsBoolean.True : JsBoolean.False;
+        return instant.EpochNanoseconds == _constructor.ToTemporalInstant(other).EpochNanoseconds
+            ? JsBoolean.True : JsBoolean.False;
     }
 
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.instant.prototype.tostring
     /// </summary>
-    private JsString ToStringMethod(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Length = 0, Name = "toString")]
+    private JsString ToStringMethod(JsValue thisObject, JsValue options)
     {
         var instant = ValidateInstant(thisObject);
-        var options = arguments.At(0);
-
         // Step 2: GetOptionsObject
         ObjectInstance? optionsObj = null;
         if (!options.IsUndefined())
@@ -796,7 +776,8 @@ internal sealed class InstantPrototype : Prototype
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.instant.prototype.tojson
     /// </summary>
-    private JsString ToJSON(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsString ToJSON(JsValue thisObject)
     {
         var instant = ValidateInstant(thisObject);
         return new JsString(FormatInstant(instant.EpochNanoseconds, "UTC", -1));
@@ -805,12 +786,10 @@ internal sealed class InstantPrototype : Prototype
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sup-temporal.instant.prototype.tolocalestring
     /// </summary>
-    private JsValue ToLocaleString(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction(Length = 0)]
+    private JsValue ToLocaleString(JsValue thisObject, JsValue locales, JsValue options)
     {
         var instant = ValidateInstant(thisObject);
-        var locales = arguments.At(0);
-        var options = arguments.At(1);
-
         // Per spec: CreateDateTimeFormat with required=~any~, defaults=~all~
         var dtf = _realm.Intrinsics.DateTimeFormat.CreateDateTimeFormat(
             locales, options, required: Intl.DateTimeRequired.Any, defaults: Intl.DateTimeDefaults.All);
@@ -828,7 +807,8 @@ internal sealed class InstantPrototype : Prototype
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.instant.prototype.valueof
     /// </summary>
-    private JsValue ValueOf(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsValue ValueOf(JsValue thisObject)
     {
         Throw.TypeError(_realm, "Cannot convert Temporal.Instant to a primitive value");
         return Undefined;
@@ -837,10 +817,11 @@ internal sealed class InstantPrototype : Prototype
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.instant.prototype.tozoneddatetimeiso
     /// </summary>
-    private JsZonedDateTime ToZonedDateTimeISO(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsZonedDateTime ToZonedDateTimeISO(JsValue thisObject, JsValue timeZone)
     {
         var instant = ValidateInstant(thisObject);
-        var timeZoneId = TemporalHelpers.ToTemporalTimeZoneIdentifier(_engine, _realm, arguments.At(0));
+        var timeZoneId = TemporalHelpers.ToTemporalTimeZoneIdentifier(_engine, _realm, timeZone);
 
         return new JsZonedDateTime(_engine, _realm.Intrinsics.TemporalZonedDateTime.PrototypeObject,
             instant.EpochNanoseconds, timeZoneId, "iso8601");

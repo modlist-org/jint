@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Numerics;
 using System.Text;
 using Jint.Native.Number.Dtoa;
 using Jint.Native.Object;
@@ -12,12 +13,15 @@ namespace Jint.Native.Number;
 /// <summary>
 /// https://tc39.es/ecma262/#sec-properties-of-the-number-prototype-object
 /// </summary>
-internal sealed class NumberPrototype : NumberInstance
+[JsObject]
+internal sealed partial class NumberPrototype : NumberInstance
 {
     private const int SmallDtoaLength = FastDtoa.KFastDtoaMaximalLength + 8;
     private const int LargeDtoaLength = 101;
 
     private readonly Realm _realm;
+
+    [JsProperty(Name = "constructor", Flags = PropertyFlag.NonEnumerable)]
     private readonly NumberConstructor _constructor;
 
     internal NumberPrototype(
@@ -32,25 +36,13 @@ internal sealed class NumberPrototype : NumberInstance
         _constructor = constructor;
     }
 
-    protected override void Initialize()
-    {
-        var properties = new PropertyDictionary(8, checkExistingKeys: false)
-        {
-            ["constructor"] = new PropertyDescriptor(_constructor, true, false, true),
-            ["toString"] = new PropertyDescriptor(new ClrFunction(Engine, "toString", ToNumberString, 1, PropertyFlag.Configurable), true, false, true),
-            ["toLocaleString"] = new PropertyDescriptor(new ClrFunction(Engine, "toLocaleString", ToLocaleString, 0, PropertyFlag.Configurable), true, false, true),
-            ["valueOf"] = new PropertyDescriptor(new ClrFunction(Engine, "valueOf", ValueOf, 0, PropertyFlag.Configurable), true, false, true),
-            ["toFixed"] = new PropertyDescriptor(new ClrFunction(Engine, "toFixed", ToFixed, 1, PropertyFlag.Configurable), true, false, true),
-            ["toExponential"] = new PropertyDescriptor(new ClrFunction(Engine, "toExponential", ToExponential, 1, PropertyFlag.Configurable), true, false, true),
-            ["toPrecision"] = new PropertyDescriptor(new ClrFunction(Engine, "toPrecision", ToPrecision, 1, PropertyFlag.Configurable), true, false, true)
-        };
-        SetProperties(properties);
-    }
+    protected override void Initialize() => CreateProperties_Generated();
 
     /// <summary>
     /// https://tc39.es/ecma262/#sec-number.prototype.tolocalestring
     /// https://tc39.es/ecma402/#sup-number.prototype.tolocalestring
     /// </summary>
+    [JsFunction]
     private JsValue ToLocaleString(JsValue thisObject, JsCallArguments arguments)
     {
         if (!thisObject.IsNumber() && thisObject is not NumberInstance)
@@ -68,7 +60,8 @@ internal sealed class NumberPrototype : NumberInstance
         return numberFormat.Format(x);
     }
 
-    private JsValue ValueOf(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsValue ValueOf(JsValue thisObject)
     {
         if (thisObject is NumberInstance ni)
         {
@@ -86,9 +79,10 @@ internal sealed class NumberPrototype : NumberInstance
 
     private const double Ten21 = 1e21;
 
-    private JsValue ToFixed(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsValue ToFixed(JsValue thisObject, [ToInteger] double fAsDouble)
     {
-        var f = (int) TypeConverter.ToInteger(arguments.At(0, 0));
+        var f = (int) fAsDouble;
         if (f < 0 || f > 100)
         {
             Throw.RangeError(_realm, "toFixed() digits argument must be between 0 and 100");
@@ -211,6 +205,7 @@ internal sealed class NumberPrototype : NumberInstance
     /// <summary>
     /// https://www.ecma-international.org/ecma-262/6.0/#sec-number.prototype.toexponential
     /// </summary>
+    [JsFunction(Length = 1)]
     private JsValue ToExponential(JsValue thisObject, JsCallArguments arguments)
     {
         if (!thisObject.IsNumber() && ReferenceEquals(thisObject.TryCast<NumberInstance>(), null))
@@ -287,6 +282,7 @@ internal sealed class NumberPrototype : NumberInstance
         return result;
     }
 
+    [JsFunction(Length = 1)]
     private JsValue ToPrecision(JsValue thisObject, JsCallArguments arguments)
     {
         if (!thisObject.IsNumber() && ReferenceEquals(thisObject.TryCast<NumberInstance>(), null))
@@ -407,6 +403,7 @@ internal sealed class NumberPrototype : NumberInstance
         return sb.ToString();
     }
 
+    [JsFunction(Length = 1, Name = "toString")]
     private JsValue ToNumberString(JsValue thisObject, JsCallArguments arguments)
     {
         if (!thisObject.IsNumber() && (ReferenceEquals(thisObject.TryCast<NumberInstance>(), null)))
@@ -450,13 +447,27 @@ internal sealed class NumberPrototype : NumberInstance
             return ToNumberString(x);
         }
 
-        var integer = (long) x;
-        var fraction = x - integer;
+        var truncated = System.Math.Truncate(x);
+        var fraction = x - truncated;
 
-        string result = NumberPrototype.ToBase(integer, radix);
+        string result;
+        // (double) long.MaxValue rounds up to 2^63, so the comparison must be strict
+        // against 2^63 (the smallest double above long.MaxValue) to keep the cast safe.
+        if (truncated < 9223372036854775808.0)
+        {
+            result = ToBase((long) truncated, radix);
+        }
+        else
+        {
+            // For values that don't fit in long, use BigInteger to preserve the exact
+            // integer represented by the double. Doubles above 2^53 have no fractional
+            // part, but the integer can be up to ~2^1024.
+            result = ToBase(new BigInteger(truncated), radix);
+        }
+
         if (fraction != 0)
         {
-            result += "." + NumberPrototype.ToFractionBase(fraction, radix);
+            result += "." + ToFractionBase(fraction, radix);
         }
 
         return result;
@@ -489,6 +500,26 @@ internal sealed class NumberPrototype : NumberInstance
             var digit = (int) (n % radix);
             n /= radix;
             sb.Append(Digits[digit]);
+        }
+        sb.Reverse();
+        return sb.ToString();
+    }
+
+    internal static string ToBase(BigInteger n, int radix)
+    {
+        if (n.IsZero)
+        {
+            return "0";
+        }
+
+        const string Digits = "0123456789abcdefghijklmnopqrstuvwxyz";
+        // Doubles can represent integers up to ~2^1024, which is ~1024 binary digits.
+        var sb = new ValueStringBuilder(stackalloc char[1100]);
+        var radixBig = new BigInteger(radix);
+        while (n > 0)
+        {
+            n = BigInteger.DivRem(n, radixBig, out var remainder);
+            sb.Append(Digits[(int) remainder]);
         }
         sb.Reverse();
         return sb.ToString();

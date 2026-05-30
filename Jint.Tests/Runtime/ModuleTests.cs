@@ -753,6 +753,75 @@ export const count = globals.counter;
         Assert.Equal("hello", (await completionTcs.Task).AsString());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CanStaticallyImportTextModule(bool importViaLoader)
+    {
+        const string TextModuleSpecifier = "./hello.txt";
+        const string TextModuleContent = "hello world";
+
+        const string MainModuleSpecifier = "./main.js";
+        const string MainModuleCode =
+            $$"""
+            import txt from "{{TextModuleSpecifier}}" with { type: "text" };
+            export const msg = txt;
+            """;
+
+        var loaderModules = new Dictionary<string, Func<Engine, ResolvedSpecifier, Module>>();
+        var engine = new Engine(o => o.EnableModules(new TestModuleLoader(loaderModules)));
+
+        loaderModules.Add(TextModuleSpecifier, (engine, resolved) => ModuleFactory.BuildTextModule(engine, resolved, TextModuleContent));
+        if (importViaLoader)
+        {
+            loaderModules.Add(MainModuleSpecifier, (engine, resolved) => ModuleFactory.BuildSourceTextModule(engine, resolved, MainModuleCode));
+        }
+        else
+        {
+            engine.Modules.Add(MainModuleSpecifier, MainModuleCode);
+        }
+
+        var mainModule = engine.Modules.Import(MainModuleSpecifier);
+
+        Assert.Equal(TextModuleContent, mainModule.Get("msg").AsString());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CanDynamicallyImportTextModule(bool importViaLoader)
+    {
+        const string TextModuleSpecifier = "./hello.txt";
+        const string TextModuleContent = "hello world";
+
+        const string MainModuleSpecifier = "./main.js";
+        const string MainModuleCode =
+            $$"""
+            const txt = await import("{{TextModuleSpecifier}}", { with: { type: "text" } });
+            callback(txt.default);
+            """;
+
+        var completionTcs = new TaskCompletionSource<JsValue>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var loaderModules = new Dictionary<string, Func<Engine, ResolvedSpecifier, Module>>();
+        var engine = new Engine(o => o.EnableModules(new TestModuleLoader(loaderModules)))
+            .SetValue("callback", new Action<JsValue>(value => completionTcs.SetResult(value)));
+
+        loaderModules.Add(TextModuleSpecifier, (engine, resolved) => ModuleFactory.BuildTextModule(engine, resolved, TextModuleContent));
+        if (importViaLoader)
+        {
+            loaderModules.Add(MainModuleSpecifier, (engine, resolved) => ModuleFactory.BuildSourceTextModule(engine, resolved, MainModuleCode));
+        }
+        else
+        {
+            engine.Modules.Add(MainModuleSpecifier, MainModuleCode);
+        }
+
+        var mainModule = engine.Modules.Import(MainModuleSpecifier);
+
+        Assert.Equal(TextModuleContent, (await completionTcs.Task).AsString());
+    }
+
     private sealed class TestModuleLoader : IModuleLoader
     {
         private readonly Dictionary<string, Func<Engine, ResolvedSpecifier, Module>> _moduleFactories;
@@ -776,5 +845,163 @@ export const count = globals.counter;
 
             throw new ArgumentException(null, nameof(resolved));
         }
+    }
+
+    [Fact]
+    public void ModuleLoadingErrorsShouldBeReportedBeforeLinkingErrors()
+    {
+        // Module that imports a valid module (which has a linking error) and an unresolvable module.
+        // The unresolvable module loading error should be reported before the linking error.
+        var loaderModules = new Dictionary<string, Func<Engine, ResolvedSpecifier, Module>>
+        {
+            ["main"] = (e, r) => ModuleFactory.BuildSourceTextModule(e, r, "import './has-linking-error'; import './does-not-exist';"),
+            ["./has-linking-error"] = (e, r) => ModuleFactory.BuildSourceTextModule(e, r, "import { nonExistent } from './has-linking-error';"),
+            // './does-not-exist' is NOT in the loader → will throw during loading
+        };
+        var engine = new Engine(o => o.EnableModules(new TestModuleLoader(loaderModules)));
+
+        var ex = Assert.ThrowsAny<Exception>(() => engine.Modules.Import("main"));
+        // Should fail with a module loading error for './does-not-exist',
+        // not with a SyntaxError/linking error from 'has-linking-error'
+        Assert.DoesNotContain("Ambiguous", ex.Message);
+    }
+
+    [Fact]
+    public void ModuleNamespaceToStringShouldNotTriggerSideEffects()
+    {
+        // Accessing ToString() on a module namespace in C# error messages should not
+        // trigger JavaScript type conversion which calls Get("toString") on the namespace.
+        _engine.Modules.Add("counter", @"
+            globalThis.toStringCalls = (globalThis.toStringCalls || 0) + 1;
+            export const value = 42;
+        ");
+
+        var ns = _engine.Modules.Import("counter");
+        var initialCalls = _engine.Evaluate("globalThis.toStringCalls").AsInteger();
+
+        // C# ToString() should not trigger JS evaluation side effects
+        var str = ns.ToString();
+        Assert.Equal("[object Module]", str);
+
+        var callsAfter = _engine.Evaluate("globalThis.toStringCalls").AsInteger();
+        Assert.Equal(initialCalls, callsAfter);
+    }
+
+    [Fact]
+    public void ImportDeferShouldNotEvaluateModuleUntilPropertyAccessed()
+    {
+        _engine.Modules.Add("setup", "globalThis.log = [];");
+        _engine.Modules.Add("dep", "globalThis.log.push('dep'); export const value = 42;");
+        _engine.Modules.Add("main", @"
+            import 'setup';
+            import defer * as ns from 'dep';
+            globalThis.phase1 = globalThis.log.length;
+            globalThis.accessed = ns.value;
+            globalThis.phase2 = globalThis.log.length;
+        ");
+
+        _engine.Modules.Import("main");
+
+        Assert.Equal(0, _engine.Evaluate("globalThis.phase1").AsInteger());
+        Assert.Equal(42, _engine.Evaluate("globalThis.accessed").AsInteger());
+        Assert.Equal(1, _engine.Evaluate("globalThis.phase2").AsInteger());
+        Assert.Equal(1, _engine.Evaluate("globalThis.log.length").AsInteger());
+        Assert.Equal("dep", _engine.Evaluate("globalThis.log[0]").AsString());
+    }
+
+    [Fact]
+    public void ImportDeferNamespaceHasDeferredModuleToStringTag()
+    {
+        _engine.Modules.Add("dep", "export const x = 1;");
+        _engine.Modules.Add("main", @"
+            import defer * as ns from 'dep';
+            globalThis.tag = ns[Symbol.toStringTag];
+        ");
+
+        _engine.Modules.Import("main");
+
+        Assert.Equal("Deferred Module", _engine.Evaluate("globalThis.tag").AsString());
+    }
+
+    [Fact]
+    public void ImportDeferNamespaceThenAccessDoesNotTriggerEvaluation()
+    {
+        // Per spec, "then" on a deferred namespace is treated as a symbol-like key
+        // to prevent the namespace from being detected as a thenable.
+        _engine.Modules.Add("setup", "globalThis.evaluated = false;");
+        _engine.Modules.Add("dep", "globalThis.evaluated = true; export const then = 'not-a-function';");
+        _engine.Modules.Add("main", @"
+            import 'setup';
+            import defer * as ns from 'dep';
+            globalThis.afterDefer = globalThis.evaluated;
+            globalThis.thenValue = ns.then;
+            globalThis.afterThenAccess = globalThis.evaluated;
+        ");
+
+        _engine.Modules.Import("main");
+
+        Assert.False(_engine.Evaluate("globalThis.afterDefer").AsBoolean());
+        Assert.True(_engine.Evaluate("globalThis.thenValue").IsUndefined());
+        Assert.False(_engine.Evaluate("globalThis.afterThenAccess").AsBoolean());
+    }
+
+    [Fact]
+    public void ImportDeferReExportedNamespaceKeepsDeferredIdentity()
+    {
+        // A deferred namespace re-exported via `export { ns }` should keep its deferred-ness,
+        // not be resolved through the indirect-namespace (`*namespace*`) path which would
+        // produce a fresh non-deferred namespace.
+        _engine.Modules.Add("setup", "globalThis.leafEvaluated = false;");
+        _engine.Modules.Add("leaf", "globalThis.leafEvaluated = true; export const x = 'leaf';");
+        _engine.Modules.Add("middle", @"
+            import defer * as leafNs from 'leaf';
+            export { leafNs };
+        ");
+        _engine.Modules.Add("main", @"
+            import 'setup';
+            import * as m from 'middle';
+            globalThis.tag = m.leafNs[Symbol.toStringTag];
+            globalThis.beforeAccess = globalThis.leafEvaluated;
+            globalThis.x = m.leafNs.x;
+            globalThis.afterAccess = globalThis.leafEvaluated;
+        ");
+
+        _engine.Modules.Import("main");
+
+        Assert.Equal("Deferred Module", _engine.Evaluate("globalThis.tag").AsString());
+        Assert.False(_engine.Evaluate("globalThis.beforeAccess").AsBoolean());
+        Assert.Equal("leaf", _engine.Evaluate("globalThis.x").AsString());
+        Assert.True(_engine.Evaluate("globalThis.afterAccess").AsBoolean());
+    }
+
+    [Fact]
+    public void ImportSourceDynamicShouldRejectPromise()
+    {
+        _engine.Modules.Add("dep", "export const x = 1;");
+        _engine.Modules.Add("main", @"
+            globalThis.rejected = false;
+            globalThis.errorName = null;
+            import.source('dep').then(
+                () => { globalThis.resolved = true; },
+                (e) => { globalThis.rejected = true; globalThis.errorName = e.constructor.name; }
+            );
+        ");
+
+        _engine.Modules.Import("main");
+
+        Assert.True(_engine.Evaluate("globalThis.rejected").AsBoolean());
+        // SourceTextModules don't have a source representation; rejection type is host-defined.
+        Assert.False(_engine.Evaluate("globalThis.errorName").IsNull());
+    }
+
+    [Fact]
+    public void ImportSourceStaticShouldCauseLinkingError()
+    {
+        _engine.Modules.Add("dep", "export const x = 1;");
+        _engine.Modules.Add("main", "import source x from 'dep';");
+
+        var ex = Assert.Throws<JavaScriptException>(() => _engine.Modules.Import("main"));
+        // Must not be SyntaxError per test262 expectations for SourceTextModule source phase.
+        Assert.NotEqual("SyntaxError", ex.Error.Get("name").AsString());
     }
 }

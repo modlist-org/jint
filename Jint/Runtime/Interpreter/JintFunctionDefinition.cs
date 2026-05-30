@@ -3,6 +3,7 @@ using Jint.Native;
 using Jint.Native.Function;
 using Jint.Native.AsyncFunction;
 using Jint.Native.AsyncGenerator;
+using Jint.Native.Disposable;
 using Jint.Native.Generator;
 using Jint.Native.Promise;
 using Jint.Runtime.Environments;
@@ -21,11 +22,19 @@ internal sealed class JintFunctionDefinition
     public readonly string? Name;
     public readonly IFunction Function;
 
-    public JintFunctionDefinition(IFunction function)
+    // Stores the AST node needed for creating the source text.
+    // (This might be different from the Function node, e.g., in the case of class methods.)
+    public readonly INode SourceTextNode;
+
+    public JintFunctionDefinition(IFunction function, INode sourceTextNode)
     {
         Function = function;
         Name = !string.IsNullOrEmpty(function.Id?.Name) ? function.Id!.Name : null;
+        SourceTextNode = sourceTextNode;
     }
+
+    public JintFunctionDefinition(IFunction function)
+        : this(function, function) { }
 
     public bool Strict => Function.IsStrict();
 
@@ -169,11 +178,25 @@ internal sealed class JintFunctionDefinition
         }
         catch (JavaScriptException e)
         {
-            // Per spec: DisposeResources before rejecting
+            // Per spec: DisposeResources before rejecting. Use the helper so async-dispose
+            // resources are awaited via the state machine instead of sync-blocking. Skip
+            // the helper entirely if the env has no disposables — common-case hot path.
             var env = engine.ExecutionContext.LexicalEnvironment;
-            var disposeResult = env.DisposeResources(new Completion(CompletionType.Throw, e.Error, null!));
-            asyncInstance._state = AsyncFunctionState.Completed;
-            asyncInstance._capability.Reject.Call(JsValue.Undefined, disposeResult.Value);
+            if (!env.HasDisposeResources)
+            {
+                asyncInstance._state = AsyncFunctionState.Completed;
+                asyncInstance._capability.Reject.Call(JsValue.Undefined, e.Error);
+                return;
+            }
+            DisposeResourcesHelper.DisposeAndThen(
+                engine,
+                env,
+                new Completion(CompletionType.Throw, e.Error, null!),
+                final =>
+                {
+                    asyncInstance._state = AsyncFunctionState.Completed;
+                    asyncInstance._capability.Reject.Call(JsValue.Undefined, final.Value);
+                });
             return;
         }
 
@@ -185,28 +208,37 @@ internal sealed class JintFunctionDefinition
             return;
         }
 
-        // Per spec AsyncBlockStart step 3.f: DisposeResources after body completes
+        // Per spec AsyncBlockStart step 3.f: DisposeResources after body completes.
+        // Settlement of the function's return promise is deferred until the dispose chain
+        // (which may itself await) finishes. Fast-path skip when no disposables registered.
         var lexEnv = engine.ExecutionContext.LexicalEnvironment;
-        result = lexEnv.DisposeResources(result);
+        if (!lexEnv.HasDisposeResources)
+        {
+            SettleAsyncFunctionCompletion(asyncInstance, result);
+            return;
+        }
+        DisposeResourcesHelper.DisposeAndThen(engine, lexEnv, result, final => SettleAsyncFunctionCompletion(asyncInstance, final));
+    }
 
-        // Completed - resolve or reject the async function's return promise
+    private static void SettleAsyncFunctionCompletion(AsyncFunctionInstance asyncInstance, Completion final)
+    {
         asyncInstance._state = AsyncFunctionState.Completed;
 
-        if (result.Type == CompletionType.Throw)
+        if (final.Type == CompletionType.Throw)
         {
-            asyncInstance._capability.Reject.Call(JsValue.Undefined, result.Value);
+            asyncInstance._capability.Reject.Call(JsValue.Undefined, final.Value);
         }
-        else if (result.Type == CompletionType.Normal)
+        else if (final.Type == CompletionType.Normal)
         {
             asyncInstance._capability.Resolve.Call(JsValue.Undefined, JsValue.Undefined);
         }
-        else if (result.Type == CompletionType.Return)
+        else if (final.Type == CompletionType.Return)
         {
-            asyncInstance._capability.Resolve.Call(JsValue.Undefined, result.Value);
+            asyncInstance._capability.Resolve.Call(JsValue.Undefined, final.Value);
         }
         else
         {
-            asyncInstance._capability.Reject.Call(JsValue.Undefined, result.Value);
+            asyncInstance._capability.Reject.Call(JsValue.Undefined, final.Value);
         }
     }
 
@@ -257,7 +289,11 @@ internal sealed class JintFunctionDefinition
     internal State Initialize()
     {
         var node = (Node) Function;
-        var state = (State) (node.UserData ??= BuildState(Function));
+        var stateOrFullSourceText = node.UserData;
+        if (stateOrFullSourceText is not State state)
+        {
+            node.UserData = state = BuildState(Function, stateOrFullSourceText as string);
+        }
         return state;
     }
 
@@ -296,12 +332,20 @@ internal sealed class JintFunctionDefinition
         public int VarSlotCount;
         public bool CanUseFastFDI;
         public bool EnvironmentMayEscape;
+        // True when the function body contains a direct call to itself by name. For tight
+        // recursion (e.g. fib/ack/tak), the per-call pool fields below add atomic-op overhead
+        // without saving allocations: the single pool slot can only cache the topmost frame —
+        // every recursive call beyond that allocates a fresh env anyway. Bypass the pool here.
+        public bool IsDirectRecursive;
         public Binding[]? _cachedSlots;
+        public Environments.FunctionEnvironment? _cachedEnv;
+
+        public SourceText SourceText;
 
         internal readonly record struct VariableValuePair(Key Name, JsValue? InitialValue);
     }
 
-    internal static State BuildState(IFunction function)
+    internal static State BuildState(IFunction function, string? fullSourceText = null)
     {
         var state = new State();
 
@@ -544,17 +588,38 @@ internal sealed class JintFunctionDefinition
                 state.VarSlotCount = varsToInitialize.Count;
                 state.UseFixedSlots = true;
                 state.CanUseFastFDI = lexicalBindingCount == 0;
-
-                if (function.Generator || function.Async)
-                {
-                    state.EnvironmentMayEscape = true;
-                }
-                else
-                {
-                    state.EnvironmentMayEscape = EnvironmentEscapeAstVisitor.MayEscapeWithReferences(function, slotNames);
-                }
             }
         }
+
+        // Compute EnvironmentMayEscape unconditionally so consumers (e.g. FunctionEnvironment pooling)
+        // can rely on it without first checking UseFixedSlots. Generators / async functions / direct eval
+        // always escape; otherwise inspect the body. When the function qualified for fixed slots, prefer
+        // the slot-aware analysis (only escapes if a closure actually references a slot variable);
+        // otherwise fall back to the conservative "any inner closure means escape" check.
+        if (function.Generator || function.Async || state.NeedsEvalContext)
+        {
+            state.EnvironmentMayEscape = true;
+        }
+        else if (state.UseFixedSlots)
+        {
+            state.EnvironmentMayEscape = EnvironmentEscapeAstVisitor.MayEscapeWithReferences(function, state.SlotNames!);
+        }
+        else
+        {
+            state.EnvironmentMayEscape = EnvironmentEscapeAstVisitor.MayEscape(function);
+        }
+
+        // Detect direct named self-call (function fib(n) { ...fib(n-1)... }). For these, the
+        // env pool's single slot is useless — only the topmost frame benefits, the rest allocate
+        // anyway — and the 4 Interlocked.Exchange ops per call dominate over the saved allocs
+        // on tight recursion (controlflow-recursive: ~500k calls per iteration).
+        var name = function.Id?.Name;
+        if (name is not null && !state.EnvironmentMayEscape)
+        {
+            state.IsDirectRecursive = SelfCallAstVisitor.ContainsCallTo(function.Body, name);
+        }
+
+        state.SourceText = new SourceText(fullSourceText);
 
         return state;
     }
@@ -803,6 +868,36 @@ Start:
                         }
 
                         break;
+                }
+            }
+
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Looks for a direct call (`name(...)`) anywhere inside a node tree. Used to detect
+    /// recursive functions so they can opt out of the FunctionEnvironment pool. Recurses into
+    /// inner functions/classes since the same name in a nested closure is still a self-call
+    /// (closure captures the outer binding). False positives are acceptable — the only effect
+    /// is that the pool is bypassed for that function, which is the conservative direction.
+    /// </summary>
+    internal static class SelfCallAstVisitor
+    {
+        internal static bool ContainsCallTo(Node node, string name)
+        {
+            foreach (var childNode in node.ChildNodes)
+            {
+                if (childNode.Type == NodeType.CallExpression
+                    && ((CallExpression) childNode).Callee is Identifier id
+                    && string.Equals(id.Name, name, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+
+                if (!childNode.ChildNodes.IsEmpty() && ContainsCallTo(childNode, name))
+                {
+                    return true;
                 }
             }
 

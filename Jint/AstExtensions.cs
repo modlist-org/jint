@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Threading;
 using Jint.Native;
 using Jint.Native.Function;
 using Jint.Native.Object;
@@ -16,6 +17,8 @@ public static class AstExtensions
 #pragma warning disable CS0649 // Field is never assigned to, and will always have its default value
     internal static readonly SourceLocation DefaultLocation;
 #pragma warning restore CS0649 // Field is never assigned to, and will always have its default value
+
+    private static Tokenizer? s_cachedTokenizer;
 
     public static JsValue GetKey<T>(this T property, Engine engine) where T : IProperty => GetKey(property.Key, engine, property.Computed);
 
@@ -325,7 +328,7 @@ public static class AstExtensions
     /// <summary>
     /// https://tc39.es/ecma262/#sec-runtime-semantics-definemethod
     /// </summary>
-    internal static Record DefineMethod<T>(this T m, ObjectInstance obj, ObjectInstance? functionPrototype = null) where T : IProperty
+    internal static Record DefineMethod<T>(this T m, ObjectInstance obj, ObjectInstance? functionPrototype, INode sourceTextNode) where T : IProperty
     {
         var engine = obj.Engine;
         var propKey = TypeConverter.ToPropertyKey(m.GetKey(engine));
@@ -342,7 +345,7 @@ public static class AstExtensions
             Throw.SyntaxError(engine.Realm);
         }
 
-        var definition = new JintFunctionDefinition(function);
+        var definition = new JintFunctionDefinition(function, sourceTextNode);
         var closure = intrinsics.Function.OrdinaryFunctionCreate(prototype, definition, definition.ThisMode, env, privateEnv);
         closure.MakeMethod(obj);
 
@@ -354,20 +357,29 @@ public static class AstExtensions
         var source = import.Source.Value;
         var specifiers = import.Specifiers;
         var attributes = GetAttributes(import.Attributes);
-        requestedModules.Add(new ModuleRequest(source, attributes));
+
+        var phase = import.Phase switch
+        {
+            ImportPhase.Defer => ModuleImportPhase.Defer,
+            ImportPhase.Source => ModuleImportPhase.Source,
+            _ => ModuleImportPhase.Evaluation,
+        };
+
+        var moduleRequest = new ModuleRequest(source, attributes) { Phase = phase };
+        requestedModules.Add(moduleRequest);
 
         foreach (var specifier in specifiers)
         {
             switch (specifier)
             {
                 case ImportNamespaceSpecifier namespaceSpecifier:
-                    importEntries.Add(new ImportEntry(new ModuleRequest(source, attributes), "*", namespaceSpecifier.Local.GetModuleKey()));
+                    importEntries.Add(new ImportEntry(moduleRequest, "*", namespaceSpecifier.Local.GetModuleKey(), phase));
                     break;
                 case ImportSpecifier importSpecifier:
-                    importEntries.Add(new ImportEntry(new ModuleRequest(source, attributes), importSpecifier.Imported.GetModuleKey(), importSpecifier.Local.GetModuleKey()!));
+                    importEntries.Add(new ImportEntry(moduleRequest, importSpecifier.Imported.GetModuleKey(), importSpecifier.Local.GetModuleKey()!, phase));
                     break;
                 case ImportDefaultSpecifier defaultSpecifier:
-                    importEntries.Add(new ImportEntry(new ModuleRequest(source, attributes), "default", defaultSpecifier.Local.GetModuleKey()));
+                    importEntries.Add(new ImportEntry(moduleRequest, "default", defaultSpecifier.Local.GetModuleKey(), phase));
                     break;
             }
         }
@@ -521,6 +533,23 @@ public static class AstExtensions
             VariableDeclarationKind.Using => DisposeHint.Sync,
             _ => DisposeHint.Normal,
         };
+    }
+
+    internal static int GetSecondTokenStartIndex(string sourceText, int start, int end)
+    {
+        var tokenizer = Interlocked.Exchange(ref s_cachedTokenizer, value: null) ?? new Tokenizer(string.Empty);
+        try
+        {
+            tokenizer.Reset(sourceText, start, end - start, SourceType.Script);
+            tokenizer.Next();
+            tokenizer.Next(); // skip first token + potential whitespace and/or comments
+            return tokenizer.Current.Start;
+        }
+        finally
+        {
+            tokenizer.Reset(string.Empty);
+            Volatile.Write(ref s_cachedTokenizer, tokenizer);
+        }
     }
 
     private sealed class MinimalSyntaxElement : Node

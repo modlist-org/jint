@@ -22,6 +22,18 @@ internal static class JintEnvironment
 
         while (record is not null)
         {
+            // Skip the virtual HasBinding call on FunctionEnvironments that have no own bindings
+            // (zero-arg, zero-var closures like `function () { ... }`). The body's identifier reads
+            // resolve outward; the empty callee env contributes nothing.
+            if (record is FunctionEnvironment fenv
+                && fenv._slots is null
+                && fenv._dictionary is null
+                && record._outerEnv is not null)
+            {
+                record = record._outerEnv;
+                continue;
+            }
+
             if (record.HasBinding(name))
             {
                 return true;
@@ -50,6 +62,16 @@ internal static class JintEnvironment
 
         while (record is not null)
         {
+            // See sibling method above; skip empty FunctionEnvironments outright.
+            if (record is FunctionEnvironment fenv
+                && fenv._slots is null
+                && fenv._dictionary is null
+                && record._outerEnv is not null)
+            {
+                record = record._outerEnv;
+                continue;
+            }
+
             if (record.TryGetBinding(name, strict, out value))
             {
                 return true;
@@ -77,17 +99,40 @@ internal static class JintEnvironment
     /// </summary>
     internal static FunctionEnvironment NewFunctionEnvironment(Engine engine, Function f, JsValue newTarget)
     {
-        var env = new FunctionEnvironment(engine, f, newTarget)
-        {
-            _outerEnv = f._environment
-        };
-
         var state = f._functionDefinition?.Initialize();
+        FunctionEnvironment env;
+
+        // Reuse a pooled FunctionEnvironment when the function's bindings cannot escape the call
+        // (no closure capture, not a generator/async). Re-bind to the new function/target/outer env
+        // and reset transient state. Slot storage is handled below.
+        //
+        // Important invariant for downstream callers: any env that an inner closure could resolve
+        // bindings from (i.e. a closure-target env) must not be pool-eligible — JintIdentifierExpression's
+        // slot-binding cache caches resolve-env references and trusts that they remain stable for
+        // the lifetime of the function instance that captured them. If the EnvironmentMayEscape gate
+        // is widened beyond closure-targets, that cache must be revisited.
+        if (state is { EnvironmentMayEscape: false, IsDirectRecursive: false }
+            && Interlocked.Exchange(ref state._cachedEnv, null) is { } cachedEnv
+            && ReferenceEquals(cachedEnv._engine, engine))
+        {
+            cachedEnv.Reset(f, newTarget, f._environment);
+            env = cachedEnv;
+        }
+        else
+        {
+            env = new FunctionEnvironment(engine, f, newTarget)
+            {
+                _outerEnv = f._environment,
+            };
+        }
+
         if (state is { UseFixedSlots: true })
         {
             env._slotNames = state.SlotNames;
-            // Try to reuse cached slots from previous call to same function (thread-safe)
-            var cached = Interlocked.Exchange(ref state._cachedSlots, null);
+            // Try to reuse cached slots from previous call to same function (thread-safe). Skip
+            // for direct-recursive functions: the single pool slot is useless for recursion and
+            // the atomic ops dominate over the saved alloc on tight recursive loops.
+            var cached = state.IsDirectRecursive ? null : Interlocked.Exchange(ref state._cachedSlots, null);
             env._slots = cached ?? new Binding[state.SlotNames!.Length];
         }
 

@@ -11,7 +11,8 @@ namespace Jint.Native.Temporal;
 /// <summary>
 /// https://tc39.es/proposal-temporal/#sec-temporal.instant
 /// </summary>
-internal sealed class InstantConstructor : Constructor
+[JsObject]
+internal sealed partial class InstantConstructor : Constructor
 {
     private static readonly JsString _functionName = new("Instant");
 
@@ -33,36 +34,24 @@ internal sealed class InstantConstructor : Constructor
 
     public InstantPrototype PrototypeObject { get; }
 
-    protected override void Initialize()
-    {
-        const PropertyFlag PropertyFlags = PropertyFlag.Writable | PropertyFlag.Configurable;
-        const PropertyFlag LengthFlags = PropertyFlag.Configurable;
+    protected override void Initialize() => CreateProperties_Generated();
 
-        var properties = new PropertyDictionary(4, checkExistingKeys: false)
-        {
-            ["from"] = new(new ClrFunction(Engine, "from", From, 1, LengthFlags), PropertyFlags),
-            ["fromEpochMilliseconds"] = new(new ClrFunction(Engine, "fromEpochMilliseconds", FromEpochMilliseconds, 1, LengthFlags), PropertyFlags),
-            ["fromEpochNanoseconds"] = new(new ClrFunction(Engine, "fromEpochNanoseconds", FromEpochNanoseconds, 1, LengthFlags), PropertyFlags),
-            ["compare"] = new(new ClrFunction(Engine, "compare", Compare, 2, LengthFlags), PropertyFlags),
-        };
-        SetProperties(properties);
-    }
 
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.instant.from
     /// </summary>
-    private JsInstant From(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsInstant From(JsValue thisObject, JsValue item)
     {
-        var item = arguments.At(0);
         return ToTemporalInstant(item);
     }
 
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.instant.fromepochmilliseconds
     /// </summary>
-    private JsInstant FromEpochMilliseconds(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsInstant FromEpochMilliseconds(JsValue thisObject, JsValue epochMilliseconds)
     {
-        var epochMilliseconds = arguments.At(0);
         var ms = TypeConverter.ToNumber(epochMilliseconds);
 
         // NumberToBigInt: must be an integral number
@@ -89,10 +78,9 @@ internal sealed class InstantConstructor : Constructor
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.instant.fromepochnanoseconds
     /// </summary>
-    private JsInstant FromEpochNanoseconds(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsInstant FromEpochNanoseconds(JsValue thisObject, JsValue epochNanoseconds)
     {
-        var epochNanoseconds = arguments.At(0);
-
         if (epochNanoseconds is not JsBigInt bigInt)
         {
             Throw.TypeError(_realm, "epochNanoseconds must be a BigInt");
@@ -112,12 +100,11 @@ internal sealed class InstantConstructor : Constructor
     /// <summary>
     /// https://tc39.es/proposal-temporal/#sec-temporal.instant.compare
     /// </summary>
-    private JsNumber Compare(JsValue thisObject, JsCallArguments arguments)
+    [JsFunction]
+    private JsNumber Compare(JsValue thisObject, JsValue one, JsValue two)
     {
-        var one = ToTemporalInstant(arguments.At(0));
-        var two = ToTemporalInstant(arguments.At(1));
-
-        return JsNumber.Create(one.EpochNanoseconds.CompareTo(two.EpochNanoseconds));
+        return JsNumber.Create(
+            ToTemporalInstant(one).EpochNanoseconds.CompareTo(ToTemporalInstant(two).EpochNanoseconds));
     }
 
     protected internal override JsValue Call(JsValue thisObject, JsCallArguments arguments)

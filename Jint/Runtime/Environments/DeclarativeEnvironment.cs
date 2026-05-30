@@ -342,15 +342,34 @@ internal class DeclarativeEnvironment : Environment
 
     internal sealed override Completion DisposeResources(Completion c) => _disposeCapability?.DisposeResources(c) ?? c;
 
+    internal sealed override bool HasDisposeResources => _disposeCapability?.HasResources == true;
+
     /// <summary>
-    /// True if the last DisposeResources call encountered an async-dispose resource
-    /// with no method (null/undefined value), requiring an implicit Await tick per spec.
+    /// Begin dispose via the state machine. Returns either Done with the final Completion,
+    /// or Suspend with a Promise the caller must await before calling
+    /// <see cref="ContinueDisposeResources"/>. If no resources are registered, returns
+    /// Done immediately.
     /// </summary>
-    internal bool NeedsAsyncDisposeTick => _disposeCapability?.NeedsAsyncTick == true;
+    internal sealed override DisposeStepResult BeginDisposeResources(Completion c)
+        => _disposeCapability?.BeginDispose(c) ?? DisposeStepResult.Done(c);
+
+    /// <summary>
+    /// Continue dispose after a suspended Await settles. Returns either Done or the next Suspend.
+    /// </summary>
+    internal sealed override DisposeStepResult ContinueDisposeResources(JsValue awaitResult, bool awaitThrew)
+        => _disposeCapability!.ContinueDispose(awaitResult, awaitThrew);
 
     public void Clear()
     {
         _dictionary = null;
+    }
+
+    /// <summary>
+    /// Reset for env-pool reuse: drop any using/await-using disposable resources tracked from the previous call.
+    /// </summary>
+    internal void ClearDisposeCapability()
+    {
+        _disposeCapability = null;
     }
 
     internal void TransferTo(List<Key> names, DeclarativeEnvironment env)
